@@ -1,0 +1,26 @@
+lidar_safety_health:
+  ros__parameters:
+    scan_topic: /scan_safety
+    driver_status_topic: /lidar/status
+    healthy_topic: /lidar/safety_healthy
+    health_text_topic: /lidar/safety_health
+
+    # T-mini is expected near 10 Hz. One stale/sparse safety scan disables motion;
+    # recovery requires several consecutive good scans.
+    scan_timeout_sec: 0.35
+    status_timeout_sec: 1.5
+    min_valid_beams: 8
+    min_valid_ratio: 0.015
+    min_scan_hz: 5.0
+    max_scan_hz: 20.0
+    recovery_good_scans: 3
+
+    # Driver publishes parser counters every 0.5 s.  Small transient serial
+    # noise is tolerated, sustained parser/checksum degradation holds motion.
+    max_invalid_packets_per_status: 3
+    max_malformed_packets_per_status: 2
+    max_checksum_failures_per_status: 10
+
+    require_driver_connected: true
+    require_motor_running: true
+    publish_rate_hz: 10.0

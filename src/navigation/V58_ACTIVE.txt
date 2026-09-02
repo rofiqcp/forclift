@@ -1,0 +1,1 @@
+V58 active: AMCL/perception startup branches decoupled; static per-map costmap/inflation preview; AMCL latched GUI data; Smac/MPPI QoS and live acceptance checks repaired.

@@ -1,0 +1,16 @@
+V38 validation record — 2026-08-25
+
+ROS-independent checks run in the delivery environment:
+- verify_v38_autonomous_sensor_costmap_stability.py: 64 PASS / 0 FAIL
+- Python AST: 106 PASS
+- YAML parse: 33 PASS
+- package.xml parse: 3 PASS
+- other XML parse: 3 PASS
+- shell syntax: 39 PASS
+- navigation unit tests: 8 PASS
+- YDLIDAR checksum vectors: 3 PASS
+
+The delivery environment does not contain ROS 2 Humble or colcon. Therefore,
+the Jetson build and real-hardware runtime are intentionally not claimed here.
+Run autonomous_runtime_check.py on the AGV after building; it is the acceptance
+gate for sensor rates, usable LiDAR beams, Nav2 lifecycle, costmaps, and TF.

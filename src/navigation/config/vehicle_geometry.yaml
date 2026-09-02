@@ -1,0 +1,69 @@
+# PART-4 / Stage-1 canonical vehicle geometry and frame convention.
+#
+# IMPORTANT:
+#   - This file is the SOURCE OF TRUTH for geometry used by Nav2/ESC/URDF.
+#   - Values marked *_validated=false are NOT allowed to be treated as final
+#     physical calibration values.
+#   - The CAD reference values below are evidence from the supplied URDF only;
+#     they are not silently promoted to physical dimensions.
+schema_version: 2
+
+frame_convention:
+  standard: REP-103
+  navigation_base_frame: base_link
+  navigation_footprint_frame: base_footprint
+  forward_axis: "+X"
+  left_axis: "+Y"
+  up_axis: "+Z"
+
+  # CAD/joint coordinates in the supplied model are kept under cad_link.
+  # Current candidate: CAD -Y is vehicle-forward. Evidence: Astra visual
+  # comment says lens-forward -> forklift -Y and fork/mast geometry is
+  # consistent with the fork side extending toward -Y. This MUST be checked
+  # physically in RViz before autonomous motion is enabled.
+  cad_frame: cad_link
+  cad_forward_axis_candidate: "-Y"
+  cad_to_base_yaw_rad: 1.570796326795
+  rep103_alignment_validated: false
+  validation_required: >-
+    Put an obstacle physically in front of the AGV and verify it appears on
+    +X of base_footprint in RViz. Verify physical left appears on +Y.
+
+vehicle:
+  # Operational baseline retained from the existing project. DO NOT replace it
+  # from CAD automatically: measure axle-center to axle-center on the real AGV.
+  wheelbase_m: 0.70
+  wheelbase_validated: false
+  wheelbase_source: FIELD_MEASUREMENT_REQUIRED
+
+  wheel_radius_m: 0.145
+  wheel_radius_validated: false
+
+  body_length_m: 1.30
+  body_width_m: 0.80
+  footprint_half_length_m: 0.65
+  footprint_half_width_m: 0.40
+
+  max_steering_angle_rad: 0.34
+  max_steering_validated: false
+
+  # Conservative operational radius. Geometry synchronizer verifies this is
+  # not smaller than wheelbase/tan(max_steering_angle_rad).
+  min_turning_radius_m: 2.00
+
+  max_forward_speed_mps: 1.20
+  max_reverse_speed_mps: 0.30
+  nav2_max_forward_speed_mps: 1.00
+  nav2_max_reverse_speed_mps: 0.30
+  max_yaw_rate_rps: 0.60
+
+# Reference extracted from navigation/urdf/joints.xacro before REP-103 adapter.
+# Used ONLY to detect model/config mismatch and to aid physical measurement.
+cad_reference:
+  steering_axle_coordinate_y_m: 0.560003211
+  fixed_axle_coordinate_y_m: -0.410003687
+  axle_separation_m: 0.970006898
+  steering_axle_track_m: 0.557867756
+  fixed_axle_track_m: 0.539999970
+  source: navigation/urdf/joints.xacro
+  note: CAD_REFERENCE_ONLY_NOT_PHYSICAL_CALIBRATION

@@ -1,0 +1,8 @@
+V60 — RViz + Smac Goal Runtime Recovery
+
+- Autonomous navigation foundation is independent from perception cleanup.
+- RViz RobotModel readiness is bounded/fail-open so the window always becomes available.
+- AMCL/local/aux lifecycle ownership is exactly-once and no longer suppressed by one-shot diagnostics.
+- map->odom readiness gate is non-terminal and keeps waiting for Initial Pose instead of permanently holding PlannerServer.
+- Goal bridge accepts AMCL QoS variants, uses recent /initialpose_safe while AMCL settles, and retains Goal across Smac retry cycles.
+- Existing V59 master perception topology and V58 costmap/MPPI work are retained.

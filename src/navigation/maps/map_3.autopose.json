@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "map_yaml": "/home/otomasi2/ros/src/navigation/maps/map_3.yaml",
+  "map_image": "/home/otomasi2/ros/src/navigation/maps/map_3.pgm",
+  "map_sha256": "4f9f855b661c20a11074cf6209862574703edb49b1a743e42f083ded3bc5054d",
+  "frame_id": "map",
+  "child_frame_id": "base_footprint",
+  "x": -0.040063,
+  "y": 0.136629,
+  "yaw": 0.018259
+}

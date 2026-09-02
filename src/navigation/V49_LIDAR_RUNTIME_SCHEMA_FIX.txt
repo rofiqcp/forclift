@@ -1,0 +1,6 @@
+V49 fixes the runtime crash observed in log(20260826-154356).
+Root cause: navigation/config/lidar.yaml legally uses ROS 2 wildcard root /**,
+while lidar_safety_config.py incorrectly required lidar_node/ros__parameters.
+The migration now accepts lidar_node, /lidar_node, /** and ** parameter roots.
+A clean empty-runtime regression test and direct parse tests for lidar.launch.py,
+mapping_runtime.launch.py and autonomous.launch.py are executed by BUILD_V49.sh.

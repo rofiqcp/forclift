@@ -1,0 +1,34 @@
+# PART-1 WT901 IMU: real calibration parameters + packet freshness
+imu_node:
+  ros__parameters:
+    port: /tmp/agv_devices/imu
+    baudrate: 115200
+    frame_id: imu_link
+    publish_rate: 50
+    use_ahrs_euler: true
+    gyro_range: 2000.0
+    accel_range: 16.0
+
+    # Calibration values are applied inside imu_node before /imu/data is published.
+    # GUI PART-2 will write these arrays after a calibration test.
+    accel_bias_mps2: [0.0, 0.0, 0.0]
+    gyro_bias_rps: [0.0, 0.0, 0.0]
+    mag_bias_t: [0.0, 0.0, 0.0]
+    mag_soft_iron: [1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0]
+    calibration_file: ""  # deprecated compatibility field
+
+    # WT901 packets are independent. Do not publish a composite IMU message
+    # when required accel/gyro components are older than this threshold.
+    component_timeout: 0.25
+    # Accel and gyro frames must also belong to nearly the same sensor cycle.
+    component_sync_tolerance: 0.04
+
+    # Replace these variances with values measured from a stationary rosbag/Allan test.
+    orientation_covariance_diagonal: [0.01, 0.01, 0.02]
+    angular_velocity_covariance_diagonal: [0.001, 0.001, 0.001]
+    linear_acceleration_covariance_diagonal: [0.01, 0.01, 0.01]
+    reconnect_interval: 0.5
+    stream_timeout: 0.8
+    first_packet_timeout: 2.0

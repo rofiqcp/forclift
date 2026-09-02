@@ -1,0 +1,182 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Alpha: 0.5
+      Cell Size: 1
+      Plane: XY
+      Plane Cell Count: 30
+      Reference Frame: <Fixed Frame>
+      Color: 160; 160; 164
+      Value: true
+
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot_description
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+      Name: RobotModel
+      TF Prefix: visual_
+      Update Interval: 0.05
+      Value: true
+      Visual Enabled: true
+
+    - Alpha: 1
+      Class: rviz_default_plugins/LaserScan
+      Color: 255; 0; 0
+      Color Transformer: FlatColor
+      Decay Time: 0.2
+      Enabled: true
+      Name: LaserScan
+      Queue Size: 10
+      Size (Pixels): 3
+      Size (m): 0.03
+      Style: Points
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /scan_nav
+      Use Fixed Frame: true
+      Value: true
+
+    - Alpha: 0.75
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: false
+      Enabled: true
+      Name: SLAM_Map
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        Filter size: 20
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Value: true
+
+    - Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Name: LiDAR_Odometry
+      Keep: 30
+      Position Tolerance: 0.02
+      Angle Tolerance: 0.02
+      Shape: Arrow
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /lidar/odom
+      Value: true
+
+    - Class: rviz_default_plugins/TF
+      Enabled: false
+      Frames:
+        All Enabled: true
+      Marker Scale: 0.25
+      Name: TF_Debug
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Value: false
+
+    - Class: rviz_default_plugins/Axes
+      Enabled: true
+      Length: 0.25
+      Name: LiDAR_Frame
+      Radius: 0.015
+      Reference Frame: lidar_link
+      Value: true
+
+    # ── Camera RGB from Astra V4L2 driver ──────────────────────────────────
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Camera_RGB
+      Normalized Scale: true
+      Queue Size: 2
+      Topic:
+        Depth: 2
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /camera/color/image_raw
+      Value: true
+
+    # ── YOLO annotated image from obstacle_detector_node ────────────────────
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: YOLOv8_Detection
+      Normalized Scale: true
+      Queue Size: 2
+      Topic:
+        Depth: 2
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /obstacle_detection/visualization
+      Value: true
+
+  Enabled: true
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      Orthographic Scale: 15
+      Target Frame: <Fixed Frame>
+      Value: TopDownOrtho (rviz)
+    Saved: ~
+Window Geometry:
+  Height: 900
+  Width: 1500
+  QMainWindow States:
+    - dockwidget: Displays
+      widget_state: SPLIT
+    - dockwidget: Views
+      widget_state: DOCKED

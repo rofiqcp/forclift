@@ -1,0 +1,16 @@
+V41 SENSOR ENUMERATION FIX
+==========================
+Failure addressed from log(5).zip:
+- mapping preflight saw ttyUSB inventory empty
+- resolver reported visible_serial=none indefinitely
+- /imu/data, /scan_nav, /scan_safety were never published
+- YDLIDAR motor never received its driver start sequence because lidar_node never started
+
+V41 changes:
+- CP210x recovery is dynamic by USB VID:PID 10c4:ea60; no fixed ROLE_IFACES
+- dynamic USB hub reset/rebind fallback
+- udev permission + ModemManager-ignore + autosuspend policy installer
+- resolver identifies WT901/YDLIDAR by protocol; old hub ports are hints only
+- LiDAR historical 1-2.1.2 and 1-2.1.4 topology both supported
+- preflight refuses to enter an infinite resolver wait with zero ttyUSB endpoints
+- one-command APPLY_V41_ON_JETSON.sh performs setup, clean build, static verification and live /imu/data + /scan_nav + /scan_safety + /map validation

@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>esc</name>
+  <version>0.6.0</version>
+  <description>Single owner of Ackermann actuation: ESC hardware driver, Nav2 controller wrapper, cmd_vel mux, global keyboard teleop, joystick teleop, and hardware-aware progress checking.</description>
+  <maintainer email="maintainer@example.com">ESC Maintainer</maintainer>
+  <license>GPL-3.0-or-later</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>nav2_controller</depend>
+  <depend>nav2_core</depend>
+  <depend>pluginlib</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>joy</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

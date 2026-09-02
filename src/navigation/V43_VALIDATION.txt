@@ -1,0 +1,17 @@
+V43 source-side validation
+Date: 2026-08-26
+
+verify_v43_cpp_path_gui.sh: 56 PASS / 0 FAIL
+Python AST (remaining launch/config/diagnostic helpers): PASS
+YAML parse: 22/22 PASS
+package.xml parse: PASS
+Shell syntax: PASS
+Unit tests: 8/8 PASS
+CMake install(PROGRAMS) file references: PASS
+ZIP integrity: validated after packaging
+
+Live ROS 2 Humble compilation and physical AGV verification must be executed on the Jetson with:
+  bash src/navigation/tools/APPLY_V43_ON_JETSON.sh
+  ros2 launch navigation gui.launch.py
+  bash src/navigation/tools/validate_v43_navigation_live.sh
+  bash src/navigation/tools/validate_v43_navigation_live.sh path

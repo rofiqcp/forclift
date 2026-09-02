@@ -1,0 +1,48 @@
+V47 — COMMAND/RUNTIME RESTORE
+Date: 2026-08-26
+
+Root cause found in src(5).zip + log(10).zip:
+1. src(5) had regressed to the V42 runtime layout. Production GUI and navigation-path nodes were Python again.
+2. The build itself completed, but the requested C++ executable names did not exist in that source tree.
+3. The build environment also contained stale workspace overlay entries for removed install/esc and install/yolo_obstacle_detection_ros2 paths, producing AMENT_PREFIX_PATH/CMAKE_PREFIX_PATH warnings.
+
+V47 restores and keeps the V46 native-C++ production runtime:
+- agv_gui_cpp                       <- replaces scripts/agv_gui.py + python/navigation_gui
+- mapping_gui_cpp                   <- replaces scripts/mapping_gui.py
+- goal_pose_nav2_bridge             <- replaces scripts/goal_pose_nav2_bridge.py
+- scan_self_filter                  <- replaces scripts/scan_self_filter.py
+- navigation_runtime_validator      <- native C++ live validation
+
+ROS 2 .launch.py files and non-production compatibility/config/diagnostic helpers remain Python by design; ROS 2 Humble launch descriptions are Python launch files. They are not the GUI/path/filter production nodes requested for C++ conversion.
+
+GUI requirement:
+- Native Qt5/C++ GUI keeps the legacy dark engineering dashboard layout, branding, page names, status cards and ROS data overview restored in V46.
+- No switch back to the simplified GUI.
+
+V47 additionally provides:
+- APPLY_V47_ON_JETSON.sh: removes stale overlay variables, clean-builds, verifies executables and launch discovery.
+- verify_v47_commands.sh: source-side command/entry-point consistency checker.
+- run_v47.sh: sourced launcher wrapper for gui/map/autonomous/allsystem/imu/lidar/esc/yolo modes.
+
+Expected primary commands after build + source:
+  ros2 launch navigation gui.launch.py
+  ros2 launch navigation map.launch.py
+  ros2 launch navigation autonomous.launch.py
+  ros2 launch navigation allsystem.launch.py
+  ros2 launch navigation imu.launch.py
+  ros2 launch navigation lidar.launch.py
+  ros2 launch esc esc.launch.py
+  ros2 launch yolo_obstacle_detection_ros2 perception_all.launch.py
+
+Expected native navigation executables:
+  agv_gui_cpp
+  mapping_gui_cpp
+  goal_pose_nav2_bridge
+  scan_self_filter
+  navigation_runtime_validator
+  imu_node
+  lidar_node
+  hector_slam_node
+  imu_visual_tf_node
+  map_monitor_node
+  allsystem_gate

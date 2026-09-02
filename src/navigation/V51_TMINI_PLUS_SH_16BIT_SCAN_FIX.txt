@@ -1,0 +1,16 @@
+V51 — T-mini Plus SH 25 m /scan publication fix
+
+Cause confirmed from 2026-08-27 field logs:
+- 2-byte parser: only sparse/ring packets occasionally passed checksum.
+- 3-byte parser: valid_packets=0 and checksum_fail rose for every packet.
+- YDLIDAR dataset identifies Tmini Plus SH (25 m) as 16-bit intensity.
+- Current SDK getPointBytes() therefore uses 4 bytes/sample.
+
+Fix:
+- Add intensity_bits parameter (default 16 for this robot).
+- Parse SH sample as uint16 intensity + uint16 Q2 distance.
+- XOR both 16-bit words in checksum exactly like vendor SDK.
+- Convert raw triangle distance with raw/4000.0 metres.
+- Do not apply legacy second-level angle correction to T-mini family.
+- Propagate intensity_bits=16 through lidar, mapping, autonomous and runtime YAML migration.
+- Keep /scan_nav canonical and /scan as compatibility alias.

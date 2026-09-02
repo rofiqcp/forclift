@@ -1,0 +1,30 @@
+# PART-5 Stage-3 universal runtime configuration manifest.
+schema_version: 1
+software_contract: PART5_STAGE3
+managed_files:
+  navigation:
+    vehicle_geometry.yaml: 2
+    lidar.yaml: 1
+    lidar_safety.yaml: 2
+    imu.yaml: 2
+    hector.yaml: 1
+    hector_autonomous.yaml: 1
+    ekf_autonomous.yaml: 3
+    ekf_mapping_reference.yaml: 3
+    localization_startup.yaml: 2
+    localization_timing.yaml: 1
+    slam_toolbox.yaml: 1
+    nav2_ackermann.yaml: 5
+    collision_monitor.yaml: 3
+    autonomy_health.yaml: 1
+    manual_motion_health.yaml: 1
+  esc:
+    ackermann_1_board.yaml: 4
+    ackermann_2_board.yaml: 3
+    keyboard_teleop.yaml: 2
+    esc_mux.yaml: 3
+    winch.yaml: 1
+  yolo_obstacle_detection_ros2:
+    camera_v4l2.yaml: 2
+    yolo_detection.yaml: 2
+    alignment_realtime.yaml: 2

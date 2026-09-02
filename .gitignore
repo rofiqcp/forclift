@@ -1,0 +1,14 @@
+# ROS 2 / colcon generated directories
+build/
+install/
+log/
+
+# Common generated Python files
+__pycache__/
+*.py[cod]
+
+# Editor / OS temporary files
+.vscode/
+.idea/
+.DS_Store
+*~

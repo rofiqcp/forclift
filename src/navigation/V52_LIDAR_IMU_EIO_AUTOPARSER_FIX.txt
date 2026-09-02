@@ -1,0 +1,22 @@
+V52 LiDAR + IMU transport recovery
+===================================
+
+Observed field failure (2026-08-27 14:26):
+- kernel enumerated two CP210x bridges and created /dev/ttyUSB0 + /dev/ttyUSB1
+- both IMU and LiDAR open() calls failed with Input/output error (EIO)
+- /imu/data and /scan_nav therefore stayed at zero messages
+
+Fixes:
+1. agv-sensor-recover now probes open()+tcgetattr() instead of assuming that a present ttyUSB node is healthy.
+2. I/O-broken CP210x interfaces are unbound/rebound individually before any hub-level recovery.
+3. IMU and LiDAR C++ serial layers request serialized recovery automatically on EIO/ENODEV/ENXIO.
+4. launch preflight runs the EIO-aware validation after stale sensor owners are stopped.
+5. LiDAR parser starts with the configured 4-byte SH format but can auto-detect verified 3-byte or 2-byte YDLIDAR layouts using checksum evidence, then locks the valid layout.
+6. USB runtime autosuspend remains disabled for the AGV CP210x bridges.
+
+One-time deployment on Jetson after replacing ~/ros/src:
+  cd ~/ros/src/navigation
+  ./tools/APPLY_V52_ON_JETSON.sh
+
+While mapping is running:
+  ./tools/verify_v52_sensor_live.sh

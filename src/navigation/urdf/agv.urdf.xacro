@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="agv_forklift">
+  <!-- Runtime geometry source-of-truth passes these mappings from vehicle_geometry.yaml. -->
+  <xacro:arg name="cad_to_base_yaw_rad" default="1.570796326795"/>
+  <xacro:arg name="max_steering_angle_rad" default="0.34"/>
+  <xacro:property name="cad_to_base_yaw_rad" value="$(arg cad_to_base_yaw_rad)"/>
+  <xacro:property name="max_steering_angle_rad" value="$(arg max_steering_angle_rad)"/>
+  <!-- Materials -->
+  <xacro:include filename="$(find navigation)/urdf/materials.xacro"/>
+  <!-- Links + joints built from New folder CAD parts (Assem rev.STL is reference only) -->
+  <xacro:include filename="$(find navigation)/urdf/links.xacro"/>
+  <xacro:include filename="$(find navigation)/urdf/sensors.xacro"/>
+  <xacro:include filename="$(find navigation)/urdf/joints.xacro"/>
+  <xacro:include filename="$(find navigation)/urdf/ros2_control.xacro"/>
+</robot>

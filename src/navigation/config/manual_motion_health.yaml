@@ -1,0 +1,12 @@
+manual_motion_health:
+  ros__parameters:
+    publish_rate_hz: 10.0
+    lidar_health_topic: /lidar/safety_healthy
+    esc_ready_topic: /esc/ready
+    output_topic: /system/manual_motion_allowed
+    status_topic: /system/manual_motion_health
+    lidar_timeout_sec: 0.60
+    esc_timeout_sec: 0.80
+    stable_recovery_sec: 0.75
+    require_lidar: true
+    require_esc: true

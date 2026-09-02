@@ -1,0 +1,8 @@
+V38 autonomous sensor, costmap, LiDAR-noise and visual-TF stability revision.
+
+Production targets:
+- /imu/data >= 20 Hz acceptance (nominal hardware 50 Hz)
+- /scan_nav >= 3 Hz acceptance (measured hardware about 6 Hz)
+- local/global inflation radius 0.35 m, scaling factor 18.0
+- physical footprint remains 1.30 x 0.80 m
+- Collision Monitor remains on independent /scan_safety

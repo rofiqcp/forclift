@@ -1,0 +1,7 @@
+V43_CPP_PATH_GUI_ACTIVE
+2026-08-26
+Production GUI: agv_gui_cpp + mapping_gui_cpp (Qt5/C++)
+Goal Pose path: goal_pose_nav2_bridge (C++) -> ComputePathToPose/GridBased/Smac Hybrid-A* -> /smac_plan -> NavigateToPose -> MPPI
+LiDAR navigation filter: scan_self_filter (C++) with strict checksum + anti-starburst filtering
+Physical footprint remains 1.30 x 0.80 m; inflation radius 0.45 m; Ackermann min turning radius remains 2.0 m.
+Python GUI package and Python goal/filter entry points are removed from production runtime.

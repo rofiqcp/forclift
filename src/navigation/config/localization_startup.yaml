@@ -1,0 +1,24 @@
+autonomous_amcl_ready_gate:
+  ros__parameters:
+    # Automatic production fallback for older maps without an .autopose.json.
+    # GLOBAL_LOCALIZATION uses AMCL's real /map + /scan_nav particle search; it
+    # never assumes the robot starts at map origin. KNOWN_POSE remains allowed
+    # only when its SHA256 matches the exact selected map pair.
+    initial_pose_mode: GLOBAL_LOCALIZATION   # GLOBAL_LOCALIZATION | OPERATOR | KNOWN_POSE
+    known_pose_x: 0.0
+    known_pose_y: 0.0
+    known_pose_yaw: 0.0
+    known_pose_map_sha256: ""
+    require_map_hash_for_known_pose: true
+
+    # Startup convergence gate. These thresholds only decide when navigation may
+    # activate; runtime AutonomyHealthManager continues monitoring localization.
+    convergence_min_samples: 1
+    max_cov_x: 0.50
+    max_cov_y: 0.50
+    max_cov_yaw: 0.40
+    stability_translation_m: 0.15
+    stability_yaw_rad: 0.20
+    bootstrap_delay_sec: 0.8
+    nomotion_update_period_sec: 1.0
+    diagnostic_timeout_sec: 600.0

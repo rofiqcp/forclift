@@ -1,0 +1,10 @@
+V46 — C++ GUI legacy-layout restoration + independent IMU/LiDAR startup
+- Restores the previous dark engineering dashboard layout in native Qt/C++.
+- GUI launcher directly includes autonomous.launch.py; no nested ros2 launch child.
+- Sensor preflight is bounded and cannot keep the whole ROS foundation dark forever.
+- USB resolver publishes each role alias as soon as it is identified.
+- IMU and LiDAR have independent transport gates and driver handoffs in autonomous + mapping.
+- LiDAR strict checksum is enabled by default for autonomous runtime.
+- Mapping reset uses stable QStringList storage to avoid GCC11 range-loop warnings.
+- Live validator modes: sensor, localization, navigation, goal.
+- V46 static verification: 35 PASS / 0 FAIL.

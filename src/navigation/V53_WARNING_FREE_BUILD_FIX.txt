@@ -1,0 +1,9 @@
+V53 WARNING-FREE BUILD FIX
+Date: 2026-08-27
+
+Fixes the only two compiler warnings present in log build_2026-08-27_14-47-15:
+- navigation/src/lidar_node.cpp: ignored return value from std::system()
+- navigation/src/b2_serial_port.cpp: ignored return value from std::system()
+
+The recovery command and runtime behavior are preserved. The std::system() return value is now
+captured and checked for -1 so GCC -Wunused-result no longer emits a warning.

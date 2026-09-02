@@ -1,0 +1,16 @@
+V44 Humble/GCC11 build compatibility fix
+=========================================
+
+Fixes the navigation build failure observed on Jetson / ROS 2 Humble:
+  scan_self_filter.cpp: no matching function for call to std::max(int, long int)
+
+ROS 2 Humble's integer parameter API resolves the declared integer value to the
+underlying ROS integer representation. The V43 code mixed that value directly
+with an int literal in std::max(), which requires both operands to have the same
+template type.
+
+V44 explicitly converts integer parameter values to int before std::max() and
+also makes the GoalPose bridge integer assignments explicit.
+
+No navigation algorithm, footprint, Smac Hybrid-A*, MPPI, LiDAR filter threshold,
+or GUI behavior is changed by this build-only compatibility patch.

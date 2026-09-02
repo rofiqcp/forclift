@@ -1,0 +1,11 @@
+<library path="esc_aware_progress_checker">
+  <class
+    name="esc/EscAwareProgressChecker"
+    type="esc::EscAwareProgressChecker"
+    base_class_type="nav2_core::ProgressChecker">
+    <description>
+      Ackermann progress checker owned by package esc. It bypasses stuck detection only
+      while real ESC hardware reports not-ready, without publishing fake odometry.
+    </description>
+  </class>
+</library>

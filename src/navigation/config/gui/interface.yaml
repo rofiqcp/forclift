@@ -1,0 +1,27 @@
+branding:
+  title: "Autonomous Vehicle Interface"
+  subtitle_1: "Sekolah Vokasi"
+  subtitle_2: "Universitas Diponegoro"
+  logo_path: ""
+
+workspace:
+  root: "/home/otomasi2/ros"
+
+mapping:
+  launch_file: "/home/otomasi2/ros/src/navigation/launch/map.launch.py"
+  source_map_dir: "/home/otomasi2/ros/src/navigation/maps"
+  map_slots:
+    - "/home/otomasi2/ros/src/navigation/maps/map_1.yaml"
+    - "/home/otomasi2/ros/src/navigation/maps/map_2.yaml"
+    - "/home/otomasi2/ros/src/navigation/maps/map_3.yaml"
+  persistent_map_dir: "/home/otomasi2/ros/maps"
+  latest_map_pointer: "/home/otomasi2/ros/maps/latest_map.txt"
+  auto_detect_results: true
+
+logging:
+  output_dir: "/home/otomasi2/ros/log/agv_gui"
+
+ui:
+  history_seconds: 60
+  default_theme: "dark"
+  left_right_ratio: [2, 4]

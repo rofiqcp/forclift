@@ -1,0 +1,9 @@
+std_msgs/Header header
+Obstacle[] obstacles
+int32 dynamic_count
+int32 static_count
+int32 floor_count
+int32 pallet_count
+int32 other_count
+bool warning_active
+string[] path_obstacles

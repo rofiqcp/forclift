@@ -1,0 +1,46 @@
+# Test parameters for fork alignment — ACKERMANN configuration
+# Values marked PLACEHOLDER must be measured on the actual AGV before use
+
+/**:
+  ros__parameters:
+    # ── Ackermann vehicle parameters (MEASURE ON AGV) ───────────────────────
+    wheelbase_m: 1.2                      # PLACEHOLDER: distance between front and rear axles in meters
+    maximum_steering_angle_deg: 30.0       # PLACEHOLDER: maximum steering angle from straight (mechanical limit)
+    maximum_steering_rate_deg_s: 15.0      # PLACEHOLDER: max rate of steering angle change
+    maximum_yaw_rate_rad_s: 0.5            # PLACEHOLDER: maximum yaw rate the controller should allow
+    minimum_control_velocity_mps: 0.05      # minimum forward velocity when angular correction is active
+
+    # ── Velocities ───────────────────────────────────────────────────────────
+    approach_velocity_mps: 0.15            # speed during approach phase
+    fine_alignment_velocity_mps: 0.05      # speed during fine alignment phase
+    insertion_velocity_mps: 0.04            # speed during fork insertion
+
+    # ── Alignment tolerances ──────────────────────────────────────────────────
+    lateral_tolerance_m: 0.015             # acceptable lateral error before declaring aligned
+    yaw_tolerance_deg: 1.5                 # acceptable yaw error before declaring aligned
+    steering_center_tolerance_deg: 2.0     # steering angle must be within this before insertion
+    lateral_safety_limit_m: 0.05           # HARD STOP if lateral error exceeds this
+    yaw_safety_limit_deg: 5.0              # HARD STOP if yaw error exceeds this
+
+    # ── Camera-to-fork calibration (MEASURE ON AGV) ───────────────────────────
+    camera_to_fork_offset_x: 0.0           # PLACEHOLDER: horizontal offset from camera optical center to fork center
+    camera_to_fork_offset_y: 0.0           # PLACEHOLDER: vertical offset
+    fork_reference_x_px: 320.0             # PLACEHOLDER: fork center X in image (if camera centered over fork)
+    fork_reference_y_px: 480.0            # PLACEHOLDER: fork center Y in image
+
+    # ── PID gains (TUNE on AGV) ───────────────────────────────────────────────
+    kp_lateral: 0.5
+    ki_lateral: 0.0
+    kd_lateral: 0.1
+    kp_yaw: 0.3
+    ki_yaw: 0.0
+    kd_yaw: 0.05
+
+    # ── State machine ────────────────────────────────────────────────────────
+    stable_frames_required: 5              # consecutive stable detections before declaring aligned
+    data_timeout_sec: 1.0                  # stop vehicle if no pallet data received for this duration
+
+    # ── Topics ───────────────────────────────────────────────────────────────
+    pallet_pose_topic: '/pallet_detection/poses'
+    cmd_vel_topic: '/cmd_vel'              # MUST verify this matches existing Ackermann controller subscription
+    steering_feedback_topic: ''            # leave empty if no steering feedback available; set to actual topic otherwise

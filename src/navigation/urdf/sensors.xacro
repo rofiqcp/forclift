@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="agv_forklift_sensors">
+  <!-- Sensor visual meshes. Main robot meshes are unchanged. -->
+  <link name="sensor_mount_link">
+    <visual name="sensor_mount_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.626 0.072 0.02"/></geometry>
+      <material name="agv_gray"/>
+    </visual>
+  </link>
+
+  <link name="lidar_link">
+    <visual name="ydlidar_tmini_visual">
+      <origin xyz="0.005148255 0.002186266 -0.030717961" rpy="0 0 0"/>
+      <geometry><mesh filename="package://navigation/meshes/sensors/ydlidar_tmini_plus.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="agv_gray"/>
+    </visual>
+  </link>
+
+  <link name="pan_servo_link">
+    <visual name="ds3225mg_servo_visual">
+      <!-- STL +Y is the output-shaft axis; map it to link +Z. -->
+      <origin xyz="0 -0.023 0.02325" rpy="1.570796326795 0 0"/>
+      <geometry><mesh filename="package://navigation/meshes/sensors/ds3225mg_25kg.stl" scale="1 1 1"/></geometry>
+      <material name="motor_orange"/>
+    </visual>
+  </link>
+
+  <link name="gearbox_link"/>
+  <link name="imu_link"/>
+
+  <link name="camera_link">
+    <visual name="astra_camera_visual">
+      <!-- STL +Z is lens-forward; this visual maps it to CAD -Y, with STL +Y up.
+           cad_alignment_joint is the only place that maps CAD axes to REP-103. -->
+      <origin xyz="0.021415598 0.052200504 0.046931837" rpy="1.570796326795 0 0"/>
+      <geometry><mesh filename="package://navigation/meshes/sensors/astra.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="agv_gray"/>
+    </visual>
+  </link>
+
+  <link name="camera_color_frame"/>
+  <link name="camera_color_optical_frame"/>
+  <link name="camera_depth_frame"/>
+  <link name="camera_depth_optical_frame"/>
+</robot>

@@ -1,0 +1,7 @@
+V40 SENSOR USB RECOVERY ACTIVE
+- Fix /dev/imu_yahboom alias being discarded by USB role resolver.
+- Accept CP210x topology/driver while sysfs VID/PID is still settling.
+- Atomic single-process IMU+LiDAR role resolution and transport handoff.
+- YDLIDAR protocol probe uses same active-low RTS+DTR motor polarity as C++ driver.
+- Preflight waits for udev, supports package-local privileged CP210x recovery, and logs inventory.
+- Mapping GUI will not invoke map_saver until LiDAR, IMU and /map are fresh.

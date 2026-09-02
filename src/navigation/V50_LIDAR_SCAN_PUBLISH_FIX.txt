@@ -1,0 +1,32 @@
+V50 LIDAR /SCAN PUBLISH FIX - 2026-08-27
+
+Observed runtime failure
+------------------------
+- LiDAR opened successfully on /dev/ttyUSB1 at 230400 baud.
+- Motor reported RUNNING.
+- ScanReader stayed at complete=0 / published=0.
+- checksum_fail increased continuously while ring ~= valid_packets.
+
+Root cause
+----------
+The T-mini Plus stream contains intensity samples (3 bytes/sample), but the
+runtime forced legacy 2-byte parsing. Ring-start/zero packets could still pass,
+while normal packets became payload-misaligned and failed checksum.
+
+Fix
+---
+1. Enable intensity_mode=true by default in package config, direct LiDAR launch,
+   mapping launch, autonomous launch, and C++ node default.
+2. Runtime migration now forces intensity_mode=true so an old persistent
+   ~/ros/config/runtime/navigation/lidar.yaml cannot silently restore 2-byte mode.
+3. Keep strict checksum enabled.
+4. Publish the filtered navigation scan on /scan_nav and also on compatibility
+   alias /scan. Safety remains independently published on /scan_safety.
+
+Expected healthy runtime
+------------------------
+- [LIDAR-PARSER] mode=TMINI_INTENSITY_3BYTE bytes/sample=3
+- checksum_fail should stop growing continuously.
+- complete and published counters should increase.
+- ros2 topic hz /scan_nav and ros2 topic hz /scan should report about 6-12 Hz
+  (typically around 10 Hz for the configured scan frequency).

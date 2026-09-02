@@ -1,0 +1,12 @@
+V48 THREE COMMAND RUNTIME FIX — 2026-08-26
+
+Fixes based on log(20260826-150419).zip and V47 source:
+1. esc/launch/esc.launch.py now imports pathlib.Path. V47 could raise NameError at runtime during persistent ESC YAML migration even though colcon build succeeded.
+2. BUILD_V48 re-enters with stale ROS overlay variables removed before colcon starts, eliminating the observed stale AMENT_PREFIX_PATH/CMAKE_PREFIX_PATH warnings.
+3. Runtime launchers source /opt/ros/humble/setup.bash + install/local_setup.bash, not a dirty parent-chained install/setup.bash.
+4. GUI / Mapping / Autonomous get dedicated root commands: RUN_GUI.sh, RUN_MAPPING.sh, RUN_AUTONOMOUS.sh.
+5. Native C++ executables are checked with ros2 package discovery and ldd before launch.
+6. Expected autonomous readiness-gate failures hold motion fail-closed while keeping the graph observable instead of tearing down the complete command.
+7. No GUI layout, labels, pages, styling, ROS topic names, or C++ visual implementation were changed.
+
+8. Installed ros2-run aliases are provided: run_gui, run_mapping, run_autonomous.

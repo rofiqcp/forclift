@@ -1,0 +1,6 @@
+V45 WARNING-FREE BUILD FIX
+
+- Fixes GCC11 -Wrange-loop-construct warning in mapping_gui.cpp.
+- Prevents ament_cmake_pytest from warning during production builds when pytest is absent.
+- Adds a clean-build wrapper that prunes stale workspace overlay paths before deleting/rebuilding install trees.
+- Preserves V44 Humble build fixes and V43 C++ GUI/path pipeline.

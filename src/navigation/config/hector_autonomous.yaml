@@ -1,0 +1,107 @@
+# =============================================================================
+# C1SLAM — Autonomous LiDAR Odometry Correction (PART-1)
+# =============================================================================
+# IMU/EKF parameters live in B2imu and B3EKF — not here.
+# =============================================================================
+
+hector_slam_node:
+  ros__parameters:
+
+    # ========== FRAME CONFIGURATION ==========
+    map_frame: "map"
+    base_frame: "base_footprint"
+    odom_child_frame: "base_footprint"
+
+    # ========== MAP CONFIGURATION ==========
+    map_width: 40.0
+    map_height: 40.0
+    map_resolution: 0.025
+
+    robot_initial_x: 0.0
+    robot_initial_y: 0.0
+    robot_initial_yaw: 0.0
+
+    # ========== LIDAR PARAMETERS ==========
+    scan_topic: /scan_nav
+    max_range: 8.0
+    min_range: 0.15
+
+    # ========== SCAN PROCESSING ==========
+    scan_filtering: true
+    scan_filter_window: 5
+
+    # Anti-starburst validation. Low-information scans and scan gaps hold pose.
+    min_valid_scan_points: 50
+    motion_min_overlap: 35
+    motion_confirm_threshold: 2
+    motion_median_threshold: 0.020
+    motion_changed_range_threshold: 0.060
+    motion_changed_ratio_threshold: 0.25
+    max_scan_gap: 0.40
+    search_tie_epsilon: 0.000001
+
+    # Cross-sensor yaw sanity gate. IMU gyro is used only to reject/clamp
+    # impossible LiDAR yaw deltas; orientation is still estimated by LiDAR.
+    use_imu_rotation_gate: true
+    imu_rotation_gate_timeout: 0.30
+    imu_stationary_gyro_threshold: 0.035
+    imu_rotation_margin_deg: 0.8
+    imu_rotation_scale: 1.8
+
+    # ========== OCCUPANCY GRID UPDATE ==========
+    update_factor_free: 0.15
+    update_factor_occupied: 0.35
+
+    # ========== STABILITY — ANTI-DRIFT ==========
+    map_update_distance_threshold: 0.015
+    map_update_angle_threshold: 0.0087
+    min_scan_match_quality: 0.30
+
+    # ========== TF / ODOM PUBLISHING ==========
+    # PART-1 production role: LiDAR odometry MEASUREMENT ONLY.
+    # slam_toolbox owns map->odom and EKF owns odom->base_footprint.
+    publish_map_odom_tf: false
+    publish_odom_tf: false
+    publish_map_topic: false
+    publish_pose_topic: false
+    publish_odom_topic: true
+
+    # ========== DEBUG DISPLAY ==========
+    show_pose: true
+    show_quality: true
+    show_scan_count: true
+    show_robot_status: true
+
+    # ========== DRIFT REDUCTION PARAMETERS ==========
+    delta_ema_alpha: 0.55
+    stationary_dist_threshold: 0.015
+    stationary_confirm_threshold: 8
+    deadband_dist: 0.005
+    deadband_angle_deg: 0.8
+    quality_gate_threshold: 0.45
+    quality_gate_significant_dist: 0.02
+    quality_gate_significant_angle_deg: 3.0
+    # At the measured ~6 Hz physical revolution rate, a 0.30 m/s AGV moves
+    # ~5 cm per scan. Keep modest margin but never search 10-15 cm jumps.
+    max_vel_trans: 1.20
+    max_vel_rot: 0.80
+    coarse_search_x: 0.20
+    coarse_search_y: 0.12
+    coarse_search_theta_deg: 5.0
+    max_single_trans: 0.35
+    max_single_rot_deg: 8.0
+    deviation_threshold: 0.18
+    deviation_threshold_init: 0.25
+
+    # ========== PUBLICATION RATES ==========
+    # Full 1600x1600 OccupancyGrid at 10 Hz overloads RViz and looks like
+    # blinking. Two Hz remains responsive without queueing stale grids.
+    map_pub_period: 0.5
+    pose_pub_period: 0.033
+    tf_pub_period: 0.033
+
+map_saver_node:
+  ros__parameters:
+    save_directory: "~/agv_forklift/maps"
+    auto_save: false
+    auto_save_interval: 30.0

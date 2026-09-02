@@ -1,0 +1,5 @@
+V56 ACTIVE — 2026-08-30
+Master PyQt GUI restored from supplied reference source: Map 1/2/3 rendering,
+live overlays, realtime RingPlot graphs, configuration and perception views.
+V55 ROS telemetry/QoS/runtime fixes retained. Autonomous RViz now starts only
+after /robot_description and map->visual_/ RobotModel TF readiness.

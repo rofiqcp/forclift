@@ -1,0 +1,38 @@
+# GUI C++ calibration/reporting state
+runtime:
+  live_apply_yaml: true
+navigation_menu:
+  active_subsystem: "perception"
+  active_leaf: "4.1.1"
+map_overlay:
+  pgm_opacity: 0.72
+  osm_opacity: 0.95
+  osm_line_width_px: 2.2
+  offset_x_m: 0.0
+  offset_y_m: 0.0
+  yaw_deg: 0.0
+  scale: 1.0
+ground_truth_points: []
+reporting:
+  output_directory: ~/.ros/agv_gui_reports
+  sample_rate_hz: 5.0
+  project_name: UNDIP AGV
+  operator: ''
+  session_id: ''
+  experiment_category: ''
+  experiment_variant: ''
+  experiment_notes: ''
+esc_calibration:
+  trials: []
+  last_drive_scale: 1.0
+  last_effective_wheelbase_m: 0.70
+camera_overlay:
+  obstacle_roi_points_px: [180, 700, 1100, 700, 780, 380, 500, 380]
+  lane_safety_points_px: [340, 700, 940, 700, 740, 420, 540, 420]
+  show_ground_plane: true
+  show_obstacle_roi: true
+  show_lane_safety: true
+patrol:
+  target_names: []
+  dwell_sec: 2.0
+  loop: true

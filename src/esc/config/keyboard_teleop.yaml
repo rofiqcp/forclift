@@ -1,0 +1,18 @@
+esc_keyboard_teleop:
+  ros__parameters:
+    output_topic: /cmd_vel/keyboard
+    estop_request_topic: /esc/keyboard/estop_request
+    input_device: auto
+    enable_global_evdev: true
+    enable_tty_fallback: false
+    require_deadman: true
+    publish_rate_hz: 40.0
+    forward_speed_mps: 0.45
+    reverse_speed_mps: 0.2
+    steering_angle_rad: 0.22
+    wheelbase_m: 0.7
+    speed_step_mps: 0.05
+    steering_step_rad: 0.02
+    max_forward_speed_mps: 1.2
+    max_reverse_speed_mps: 0.3
+    max_steering_angle_rad: 0.34

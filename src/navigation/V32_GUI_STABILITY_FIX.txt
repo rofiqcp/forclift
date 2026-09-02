@@ -1,0 +1,6 @@
+V32 GUI STABILITY FIX
+- Coalesces high-rate ROS telemetry/pose/scan/costmap/path/trajectory updates before Qt.
+- GUI-facing ROS updates are bounded to 5 Hz.
+- TF UI poll reduced from 5 Hz to 2 Hz.
+- Scan-to-map quality analysis limited to 1 Hz while the live LiDAR overlay remains responsive.
+- Intended to eliminate Qt event-queue starvation / apparent forced-close behavior seen in V31 runtime logs.

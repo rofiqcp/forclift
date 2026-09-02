@@ -1,0 +1,186 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="agv_forklift_links">
+  <!-- CAD Y-up -> ROS Z-up using Rx(+90deg). -->
+  <!-- base_link chassis center; mesh-derived floor offset=0.572498958207 m; common visual xyz=-0.351649981 0.665947638 -0.604650887, rpy=1.570796326795 0 0 -->
+  <link name="base_footprint"/>
+  <!-- REP-103 navigation body frame: +X forward, +Y left, +Z up. -->
+  <link name="base_link"/>
+  <!-- Raw CAD/joint frame.  A fixed yaw adapter in joints.xacro maps this
+       frame into REP-103 without rewriting every mesh/joint coordinate. -->
+  <link name="cad_link"/>
+
+  <!-- TODO(simulation): replace detailed STL collision meshes with validated primitives for Gazebo/Isaac. -->
+  <link name="body_link">
+    <visual name="body_frame_001_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/body_frame_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="body_frame_001_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/body_frame_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_001_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_001_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_002_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_002.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_002_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_002.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_003_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_003.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_003_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_003.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_004_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_004.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_004_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_004.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_005_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_005.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_005_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_005.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_006_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_006.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_006_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_006.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_007_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_007.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_007_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_007.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_008_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_008.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_008_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_008.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_009_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_009.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_009_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_009.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_010_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_010.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_010_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_010.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_011_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_011.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_011_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_011.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_012_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_012.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_012_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_012.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_013_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_013.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_013_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_013.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_014_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_014.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_014_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_014.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="bracket_015_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_015.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="bracket_015_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/body_parts/bracket_015.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="rear_right_pallet_axle_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/rear_right_pallet_axle.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="rear_left_pallet_axle_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/rear_left_pallet_axle.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <inertial><origin xyz="0 0 0" rpy="0 0 0"/><mass value="300.0"/><inertia ixx="10" ixy="0" ixz="0" iyy="12" iyz="0" izz="15"/></inertial>
+  </link>
+
+  <link name="mast_link">
+    <visual name="mast_001_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_001_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="mast_002_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_002.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_002_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_002.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+
+    <visual name="mast_004_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_004.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_004_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_004.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+
+    <visual name="mast_006_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_006.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_006_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_006.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="mast_007_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_007.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_007_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_007.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="mast_008_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_008.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_008_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_008.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="mast_009_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_009.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_009_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_009.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="mast_010_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_010.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_010_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_010.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="mast_011_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_011.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="mast_011_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_011.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="mast_roller_1_1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_1_1.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_1_2_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_1_2.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_1_3_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_1_3.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_1_4_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_1_4.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_1_5_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_1_5.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_1_6_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_1_6.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_2_1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_2_1.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_2_2_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_2_2.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_2_3_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_2_3.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_2_4_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_2_4.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_2_5_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_2_5.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <visual name="mast_roller_2_6_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/mast_roller_2_6.STL" scale="0.001 0.001 0.001"/></geometry><material name="bearing_steel"/></visual>
+    <inertial><origin xyz="0 0 0" rpy="0 0 0"/><mass value="120.0"/><inertia ixx="4" ixy="0" ixz="0" iyy="6" iyz="0" izz="3"/></inertial>
+  </link>
+
+  <link name="top_cross_beam_link">
+    <visual name="top_cross_beam_right_visual"><origin xyz="-0.351649981 0.315947638 -0.504650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_003.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="top_cross_beam_right_collision"><origin xyz="-0.351649981 0.315947638 -0.504650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_003.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="top_cross_beam_left_visual"><origin xyz="-0.351649981 0.315947638 -0.504650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_005.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="top_cross_beam_left_collision"><origin xyz="-0.351649981 0.315947638 -0.504650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/mast/mast_005.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+  </link>
+
+  <link name="fork_link">
+    <visual name="fork_001_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/fork/fork_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="fork_001_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/fork/fork_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <inertial><origin xyz="0 0 0" rpy="0 0 0"/><mass value="80.0"/><inertia ixx="2" ixy="0" ixz="0" iyy="4" iyz="0" izz="2"/></inertial>
+  </link>
+
+  <link name="steering_link">
+    <visual name="steering_001_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_001_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_002_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_002.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_002_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_002.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="gearbox_001_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="gearbox_001_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="gearbox_002_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_002.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="gearbox_002_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_002.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="gearbox_003_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_003.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="gearbox_003_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_003.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="gearbox_004_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_004.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="gearbox_004_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_004.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_003_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_003.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_003_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_003.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_004_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_004.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_004_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_004.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_005_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_005.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_005_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_005.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_006_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_006.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_006_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_006.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="gearbox_005_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_005.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="gearbox_005_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/gearbox_005.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_007_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_007.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_007_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_007.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_008_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_008.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_008_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_008.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_009_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_009.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_009_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_009.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="steering_010_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_010.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <collision name="steering_010_collision"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/steering/steering_010.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <visual name="front_right_bearing_housing_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/front_right_bearing_housing.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="front_left_bearing_housing_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/front_left_bearing_housing.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_rod_right_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_rod_right.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_rod_left_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_rod_left.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_31-1201-10-1_31-1201-10_01-1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_31-1201-10-1_31-1201-10_01-1.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_31-1201-10-1_31-1201-10_02-1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_31-1201-10-1_31-1201-10_02-1.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_31-1201-10-2_31-1201-10_01-1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_31-1201-10-2_31-1201-10_01-1.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_31-1201-10-2_31-1201-10_02-1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_31-1201-10-2_31-1201-10_02-1.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_31-1201-10-3_31-1201-10_01-1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_31-1201-10-3_31-1201-10_01-1.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_31-1201-10-3_31-1201-10_02-1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_31-1201-10-3_31-1201-10_02-1.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_31-1201-10-4_31-1201-10_01-1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_31-1201-10-4_31-1201-10_01-1.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="steering_31-1201-10-4_31-1201-10_02-1_visual"><origin xyz="-0.351649981 0.665947638 -0.604650887" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/steering_31-1201-10-4_31-1201-10_02-1.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <inertial><origin xyz="0 0 0" rpy="0 0 0"/><mass value="30.0"/><inertia ixx="0.5" ixy="0" ixz="0" iyy="0.5" iyz="0" izz="0.5"/></inertial>
+  </link>
+
+  <!-- Single GUI steering control; both front steering joints mirror it. -->
+  <link name="steering_control_link"/>
+
+  <link name="front_left_steering_link">
+    <visual name="bldc_left_dudukan_bldc_bawah_lagi_visual"><origin xyz="-0.072615672 0.104845390 -0.111506623" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/bldc_left_dudukan_bldc_bawah_lagi.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="bldc_left_dudukan_bldc_bawah_visual"><origin xyz="-0.072615672 0.104845390 -0.111506623" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/bldc_left_dudukan_bldc_bawah.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="bldc_left_dudukan_bldc_visual"><origin xyz="-0.072615672 0.104845390 -0.111506623" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/bldc_left_dudukan_bldc.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+  </link>
+
+  <link name="front_left_wheel_link">
+    <visual name="front_left_wheel_001_visual"><origin xyz="-0.072615672 0.104845389 -0.112150890" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/wheels_parts/front_left_wheel_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="wheel_black"/></visual>
+    <collision name="front_left_wheel_001_collision"><origin xyz="-0.072615672 0.104845389 -0.112150890" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/wheels_parts/front_left_wheel_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <inertial><origin xyz="0 0 0" rpy="0 0 0"/><mass value="10.0"/><inertia ixx="0.05" ixy="0" ixz="0" iyy="0.10" iyz="0" izz="0.05"/></inertial>
+  </link>
+
+  <link name="front_right_steering_link">
+    <visual name="bldc_right_dudukan_bldc_bawah_lagi_visual"><origin xyz="-0.630483428 0.107043464 -0.111506623" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/bldc_right_dudukan_bldc_bawah_lagi.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="bldc_right_dudukan_bldc_bawah_visual"><origin xyz="-0.630483428 0.107043464 -0.111506623" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/bldc_right_dudukan_bldc_bawah.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+    <visual name="bldc_right_dudukan_bldc_visual"><origin xyz="-0.630483428 0.107043464 -0.111506623" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/external_parts/bldc_right_dudukan_bldc.STL" scale="0.001 0.001 0.001"/></geometry><material name="agv_gray"/></visual>
+  </link>
+
+  <link name="front_right_wheel_link">
+    <visual name="front_right_wheel_001_visual"><origin xyz="-0.630483429 0.107043464 -0.112150890" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/wheels_parts/front_right_wheel_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="wheel_black"/></visual>
+    <collision name="front_right_wheel_001_collision"><origin xyz="-0.630483429 0.107043464 -0.112150890" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/wheels_parts/front_right_wheel_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <inertial><origin xyz="0 0 0" rpy="0 0 0"/><mass value="10.0"/><inertia ixx="0.05" ixy="0" ixz="0" iyy="0.10" iyz="0" izz="0.05"/></inertial>
+  </link>
+
+  <!-- Rear wheels are fixed in heading and rotate only around their axles. -->
+  <link name="rear_left_wheel_link">
+    <visual name="rear_left_wheel_001_visual"><origin xyz="-0.081649994 1.075949280 -0.072156284" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/wheels_parts/rear_left_wheel_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="wheel_black"/></visual>
+    <collision name="rear_left_wheel_001_collision"><origin xyz="-0.081649994 1.075949280 -0.072156284" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/wheels_parts/rear_left_wheel_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <inertial><origin xyz="0 0 0" rpy="0 0 0"/><mass value="10.0"/><inertia ixx="0.05" ixy="0" ixz="0" iyy="0.10" iyz="0" izz="0.05"/></inertial>
+  </link>
+
+  <link name="rear_right_wheel_link">
+    <visual name="rear_right_wheel_001_visual"><origin xyz="-0.621649963 1.075953369 -0.072140806" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/wheels_parts/rear_right_wheel_001.STL" scale="0.001 0.001 0.001"/></geometry><material name="wheel_black"/></visual>
+    <collision name="rear_right_wheel_001_collision"><origin xyz="-0.621649963 1.075953369 -0.072140806" rpy="1.570796326795 0 0"/><geometry><mesh filename="package://navigation/meshes/wheels_parts/rear_right_wheel_001.STL" scale="0.001 0.001 0.001"/></geometry></collision>
+    <inertial><origin xyz="0 0 0" rpy="0 0 0"/><mass value="10.0"/><inertia ixx="0.05" ixy="0" ixz="0" iyy="0.10" iyz="0" izz="0.05"/></inertial>
+  </link>
+
+</robot>

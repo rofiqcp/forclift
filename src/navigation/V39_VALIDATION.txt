@@ -1,0 +1,4 @@
+V39 source validation marker.
+Run: python3 tools/verify_v39_goal_amcl_path.py
+Expected: V39 STATIC RESULT with 0 FAIL.
+Live ROS/hardware acceptance remains required on the Jetson/AGV.
