@@ -25,6 +25,7 @@ Keys (when --display 1): S=shot  R=reset  SPACE=pause  Q=quit
 import argparse
 import csv
 import json
+import hashlib
 import os
 import math
 import statistics
@@ -839,8 +840,9 @@ class HoleBlockAlignmentNode(Node):
         save_video = bool(self.get_parameter("save_output_video").value)
         self.visualization_fps = max(0.0, float(self.get_parameter("visualization_fps").value))
 
-        with open(cfg_path) as f:
-            cfg = yaml.safe_load(f)
+        cfg_bytes = Path(cfg_path).read_bytes()
+        self.config_sha256 = hashlib.sha256(cfg_bytes).hexdigest()
+        cfg = yaml.safe_load(cfg_bytes.decode("utf-8"))
 
         # Mirror every scalar from the custom alignment YAML into ROS parameters.
         # The web tuner restarts this node after a YAML edit and then reads these
@@ -1060,6 +1062,8 @@ class HoleBlockAlignmentNode(Node):
                 "steering_limit_active": bool(self._last_control.get("limited", False)),
                 "control_output_enabled": bool(self.control_output_enabled),
             }
+        data["config_sha256"] = self.config_sha256
+        data["config_path"] = str(self.get_parameter("config").value)
         try:
             tmp = self.web_status_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(data, separators=(",", ":"), allow_nan=False), encoding="utf-8")

@@ -15,3 +15,6 @@ __pycache__/
 
 # Large local datasets / archives
 /models/dataset/roboflow/dataset final.zip
+
+# Runtime web tuning backups
+/config/runtime/**/*.web.bak.*

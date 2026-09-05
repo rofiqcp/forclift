@@ -1,6 +1,6 @@
 schema_version: 1
 software_contract: PART5_STAGE3
-generated_at_unix: 1788620843.2768383
+generated_at_unix: 1788632311.1758592
 runtime_root: /home/otomasi2/ros/config/runtime
 files:
   navigation:
@@ -92,12 +92,12 @@ files:
       size_bytes: 311
     yolo_detection.yaml:
       revision: 2
-      sha256: 6a4f088cef950240f560fe3884ff693e4289a25618cc7fc209cc2f73ca1c9c01
-      size_bytes: 591
+      sha256: 2159526c11e29e4d54f58bfb6e19990ee8091914a0e02e0ca675d12dadf81a42
+      size_bytes: 590
     alignment_realtime.yaml:
       revision: 2
-      sha256: 065774b568ec2318357566625042bd0a46e19e5e641cef1c815428bbb561be18
-      size_bytes: 1518
+      sha256: 3ab85b6d0a401c3fdca66d228069793d2d60c3430723e9ff1bfd231f4be2d4cf
+      size_bytes: 1733
 missing_files: []
 migrations:
   geometry:

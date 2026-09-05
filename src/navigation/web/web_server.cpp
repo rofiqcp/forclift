@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <QBuffer>
+#include <QCryptographicHash>
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDateTime>
@@ -461,6 +462,37 @@ bool restartRuntimeOwner(const QString &fileKey, QString *detail) {
   return true;
 }
 
+std::optional<QString> sha256FileHex(const QString &path) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) return std::nullopt;
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  if (!hash.addData(&file)) return std::nullopt;
+  return QString::fromLatin1(hash.result().toHex());
+}
+
+std::optional<QString> alignmentRuntimeConfigSha256() {
+  QFile file(QStringLiteral("/dev/shm/agv_alignment_status.json"));
+  if (!file.open(QIODevice::ReadOnly)) return std::nullopt;
+  QJsonParseError error{};
+  const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
+  if (error.error != QJsonParseError::NoError || !doc.isObject()) return std::nullopt;
+  const QString value = doc.object().value(QStringLiteral("config_sha256")).toString().trimmed();
+  if (value.size() != 64) return std::nullopt;
+  return value;
+}
+
+bool waitAlignmentConfigSha256(const QString &expected, QString *actual) {
+  for (int attempt = 0; attempt < 24; ++attempt) {
+    const auto got = alignmentRuntimeConfigSha256();
+    if (got) {
+      if (actual) *actual = *got;
+      if (got->compare(expected, Qt::CaseInsensitive) == 0) return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  }
+  return false;
+}
+
 std::optional<QString> readRuntimeParameter(const RuntimeParameterTarget &target) {
   for (int attempt = 0; attempt < 3; ++attempt) {
     QProcess proc;
@@ -497,6 +529,23 @@ QJsonObject applyRuntimeParameter(const QString &fileKey, const QString &yamlPat
     return QJsonObject{{"attempted", false}, {"applied", false}, {"verified", false},
       {"strategy", "next_mapping"}, {"state", "NEXT_MAPPING"},
       {"message", "YAML tersimpan; parameter akan dipakai otomatis pada START MAPPING berikutnya"}};
+  }
+
+  if (fileKey == QStringLiteral("alignment")) {
+    QString restartDetail;
+    const bool restarted = restartRuntimeOwner(fileKey, &restartDetail);
+    if (!restarted) return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
+      {"strategy", "node_restart_sha256"}, {"state", "NEXT_START"}, {"message", restartDetail}};
+    const QString filePath = configCandidates().value(fileKey);
+    const auto expected = sha256FileHex(filePath);
+    QString actualHash;
+    const bool verified = expected.has_value() && waitAlignmentConfigSha256(*expected, &actualHash);
+    return QJsonObject{{"attempted", true}, {"applied", verified}, {"verified", verified},
+      {"strategy", "node_restart_sha256"}, {"state", verified ? "APPLIED" : "VERIFY_FAILED"},
+      {"actual_value", verified ? value : QJsonValue()},
+      {"runtime_config_sha256", actualHash},
+      {"message", verified ? "Alignment node direstart dan SHA-256 config runtime cocok; nilai algoritma terverifikasi aktif" :
+                              "Alignment node direstart tetapi SHA-256 config runtime belum cocok; jangan anggap nilai aktif"}};
   }
 
   const auto target = runtimeParameterTarget(fileKey, yamlPath);
