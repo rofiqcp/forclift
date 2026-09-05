@@ -1,0 +1,151 @@
+schema_version: 1
+software_contract: PART5_STAGE3
+generated_at_unix: 1788620843.2768383
+runtime_root: /home/otomasi2/ros/config/runtime
+files:
+  navigation:
+    vehicle_geometry.yaml:
+      revision: 2
+      sha256: f45734f1eb211948bd741b4c81f72f3b70a0c849f1e5a9243e6998dadb46100f
+      size_bytes: 2533
+    lidar.yaml:
+      revision: 1
+      sha256: e983533e705d3cd02add7baf2b805f7fb377901e18b1258eb7026e814cb5c0cf
+      size_bytes: 1029
+    lidar_safety.yaml:
+      revision: 2
+      sha256: 553ee8df8bd0a53f01a33aa4490fbe1dae3356ac6c341bb4eb1ae3a5309d2573
+      size_bytes: 876
+    imu.yaml:
+      revision: 2
+      sha256: dca9c98cc546cc3ac7e1fcffed25c623dddffcc7f7440ae5829d6033bda7b4d3
+      size_bytes: 1328
+    hector.yaml:
+      revision: 1
+      sha256: 00896c71badf9b90a8d575aa1edbb2a3b7e1d9db5191de5b8172d1e1f2499d6e
+      size_bytes: 3480
+    hector_autonomous.yaml:
+      revision: 1
+      sha256: ebac569037781adf19bc2eed676ef58086483b8cd6ac75cfbcddd0e31a380d3d
+      size_bytes: 3472
+    ekf_autonomous.yaml:
+      revision: 3
+      sha256: 4460c030dd97504b0b4aa2bd8a1c0cacc6930bc85e14a9e520b951b1f8fa1030
+      size_bytes: 2134
+    ekf_mapping_reference.yaml:
+      revision: 3
+      sha256: 992f0f9f3800d456fd8d06c6562d41439a560e38110eb8f5c1e6dd5967d11f2b
+      size_bytes: 1874
+    localization_startup.yaml:
+      revision: 2
+      sha256: e5fa441f557624c00410ae6b80f4a1c4700ddc4d3de78f89bdae31e7d489b855
+      size_bytes: 480
+    localization_timing.yaml:
+      revision: 1
+      sha256: badc730bbb072ba9ae97ce00ed4f90a03996253c412d36050d6e5ea6f8ed7c48
+      size_bytes: 97
+    slam_toolbox.yaml:
+      revision: 1
+      sha256: 5f4528ad253c82e1a047b58b30b2e228ce202a3a352b735a3f33f6ac6a6f9b22
+      size_bytes: 1957
+    nav2_ackermann.yaml:
+      revision: 5
+      sha256: 99b46b3d6aaa4a3e22fcf5d1bc712e147d57c910075a226759ce6cc62c7c670c
+      size_bytes: 9090
+    collision_monitor.yaml:
+      revision: 3
+      sha256: 2d547c1fa664f89a5282f9501e40165210efe689805abb8c80ec8b1b45fc74b2
+      size_bytes: 1716
+    autonomy_health.yaml:
+      revision: 1
+      sha256: 084939fe9d1e5549b171d2d45d6a23ae47bade13ad46bbefecf608acad0f02c4
+      size_bytes: 1204
+    manual_motion_health.yaml:
+      revision: 1
+      sha256: 0fb8b2f986e15dfe5f31ac2995c2876ef7163a346e94abc607f654b5be372513
+      size_bytes: 370
+  esc:
+    ackermann_1_board.yaml:
+      revision: 4
+      sha256: e69db87f1930c501c33ffbcea4e9e4d9a8314b412b15bac0a5c1c5c30c9ad251
+      size_bytes: 975
+    ackermann_2_board.yaml:
+      revision: 3
+      sha256: 29629777ca71ef770f0e4bdda86d49311853a0a02424509d7f3715c0338f733e
+      size_bytes: 743
+    keyboard_teleop.yaml:
+      revision: 2
+      sha256: 920593d384b914df1b8e34ff34ba246408b81b3caae0673744b705e66bbdbc2a
+      size_bytes: 518
+    esc_mux.yaml:
+      revision: 3
+      sha256: c3bc6aa5ac7d560cf7e299f0d67afdd3f34b8fcc9d08b3cb818d75296d663fba
+      size_bytes: 1434
+    winch.yaml:
+      revision: 1
+      sha256: b6474d2e14567d1b9f176d7f915e5ff7607e621afe93c405f664711fb8410b3a
+      size_bytes: 347
+  yolo_obstacle_detection_ros2:
+    camera_v4l2.yaml:
+      revision: 2
+      sha256: d086b5c947f961287da040bf28ef890b8d1ecbbe7b7856a5eaf407787dad13d9
+      size_bytes: 311
+    yolo_detection.yaml:
+      revision: 2
+      sha256: 6a4f088cef950240f560fe3884ff693e4289a25618cc7fc209cc2f73ca1c9c01
+      size_bytes: 591
+    alignment_realtime.yaml:
+      revision: 2
+      sha256: 065774b568ec2318357566625042bd0a46e19e5e641cef1c815428bbb561be18
+      size_bytes: 1518
+missing_files: []
+migrations:
+  geometry:
+    path: /home/otomasi2/ros/config/runtime/navigation/vehicle_geometry.yaml
+  lidar:
+    runtime_root: /home/otomasi2/ros/config/runtime
+    changed_files: []
+    scan_safety: /scan_safety
+    scan_navigation: /scan_nav
+  localization:
+    runtime_root: /home/otomasi2/ros/config/runtime
+    changed_files: []
+    ekf_sources:
+    - /esc/odom
+    - /imu/data
+    lidar_odom_role: diagnostic_only
+    initial_pose_mode: GLOBAL_LOCALIZATION
+    localization_startup: /home/otomasi2/ros/config/runtime/navigation/localization_startup.yaml
+  planning: /home/otomasi2/ros/config/runtime/navigation/nav2_ackermann.yaml
+  geometry_sync:
+    geometry_path: /home/otomasi2/ros/config/runtime/navigation/vehicle_geometry.yaml
+    geometry:
+      cad_to_base_yaw_rad: -1.570796326795
+      wheelbase_m: 0.7
+      wheel_radius_m: 0.145
+      body_length_m: 1.3
+      body_width_m: 0.8
+      footprint_half_length_m: 0.65
+      footprint_half_width_m: 0.4
+      max_steering_angle_rad: 0.34
+      min_turning_radius_m: 2.0
+      geometric_turning_radius_m: 1.978871990617222
+      max_forward_speed_mps: 1.2
+      max_reverse_speed_mps: 0.3
+      nav2_max_forward_speed_mps: 1.0
+      nav2_max_reverse_speed_mps: 0.3
+      max_yaw_rate_rps: 0.6
+      cad_axle_separation_m: 0.970006898
+      cad_steering_track_m: 0.557867756
+      cad_fixed_track_m: 0.53999997
+    validated:
+      rep103: false
+      wheelbase: false
+      wheel_radius: false
+      max_steering: false
+    changed_files: []
+default_key_merges:
+  navigation: {}
+  esc: {}
+  yolo_obstacle_detection_ros2: {}
+valid: true

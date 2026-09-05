@@ -156,6 +156,7 @@
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <yolo_obstacle_detection_ros2/msg/obstacle_array.hpp>
+#include <yolo_obstacle_detection_ros2/msg/alignment_state.hpp>
 #include "agv_gui_specs.hpp"
 #include "agv_experiment_catalog.hpp"
 namespace fs = std::filesystem;
@@ -788,17 +789,39 @@ namespace {
             raw[QStringLiteral("path_obstacle_count")]=static_cast<int>(m->path_obstacles.size());
             double sum=0.0,maxConf=std::numeric_limits<double>::quiet_NaN();
             int valid=0;
+            const yolo_obstacle_detection_ros2::msg::Obstacle *best=nullptr;
+            const yolo_obstacle_detection_ros2::msg::Obstacle *bestPallet=nullptr;
             for(const auto &o:m->obstacles){
               const double c=static_cast<double>(o.confidence);
               if(std::isfinite(c)){
                 sum+=c; ++valid;
                 if(!std::isfinite(maxConf)||c>maxConf)maxConf=c;
+                if(!best || c>static_cast<double>(best->confidence))best=&o;
+                const QString cls=QString::fromStdString(o.class_name).trimmed().toLower();
+                if((cls==QStringLiteral("pallet")||cls==QStringLiteral("hole pallet")) &&
+                   (!bestPallet || c>static_cast<double>(bestPallet->confidence)))bestPallet=&o;
               }
             }
             if(valid>0){
               raw[QStringLiteral("mean_confidence")]=sum/valid;
               raw[QStringLiteral("max_confidence")]=maxConf;
             }
+            auto appendDetection=[&raw](const QString &prefix,const yolo_obstacle_detection_ros2::msg::Obstacle *o){
+              if(!o)return;
+              raw[prefix+QStringLiteral("class_name")]=QString::fromStdString(o->class_name);
+              raw[prefix+QStringLiteral("category")]=QString::fromStdString(o->category);
+              raw[prefix+QStringLiteral("confidence")]=static_cast<double>(o->confidence);
+              raw[prefix+QStringLiteral("center_x_px")]=static_cast<double>(o->center_x);
+              raw[prefix+QStringLiteral("center_y_px")]=static_cast<double>(o->center_y);
+              raw[prefix+QStringLiteral("x1_px")]=static_cast<double>(o->x1);
+              raw[prefix+QStringLiteral("y1_px")]=static_cast<double>(o->y1);
+              raw[prefix+QStringLiteral("x2_px")]=static_cast<double>(o->x2);
+              raw[prefix+QStringLiteral("y2_px")]=static_cast<double>(o->y2);
+              raw[prefix+QStringLiteral("on_path")]=o->on_path;
+              raw[prefix+QStringLiteral("in_danger_zone")]=o->in_danger_zone;
+            };
+            appendDetection(QStringLiteral("best_"),best);
+            appendDetection(QStringLiteral("pallet_best_"),bestPallet);
             emitMap("raw_detections",raw);
 
             QVariantMap metrics;
@@ -806,6 +829,37 @@ namespace {
             metrics[QStringLiteral("mean_confidence")]=raw.value(QStringLiteral("mean_confidence"));
             metrics[QStringLiteral("warning_active")]=m->warning_active;
             emitMap("obstacle_metrics",metrics);
+          });
+
+        // GUI-only bridge for the already-published pallet alignment state.
+        // This does not alter perception behavior; it only exposes the runtime
+        // values to BAB-IV Perception preview/CSV widgets.
+        sub<yolo_obstacle_detection_ros2::msg::AlignmentState>(
+          n,"/fork_alignment/state",latched,
+          [this](yolo_obstacle_detection_ros2::msg::AlignmentState::ConstSharedPtr m){
+            emitMap("alignment_state",{
+              {"state",static_cast<int>(m->state)},
+              {"state_text",QString::fromStdString(m->state_text)},
+              {"pallet_detected",m->pallet_detected},
+              {"detection_stable",m->detection_stable},
+              {"confidence",static_cast<double>(m->confidence)},
+              {"depth_quality",static_cast<double>(m->depth_quality)},
+              {"error_lateral_m",static_cast<double>(m->error_lateral_m)},
+              {"error_yaw_deg",static_cast<double>(m->error_yaw_deg)},
+              {"pid_lateral_output",static_cast<double>(m->pid_lateral_output)},
+              {"pid_yaw_output",static_cast<double>(m->pid_yaw_output)},
+              {"desired_yaw_rate",static_cast<double>(m->desired_yaw_rate)},
+              {"estimated_steering_deg",static_cast<double>(m->estimated_steering_deg)},
+              {"linear_velocity_cmd",static_cast<double>(m->linear_velocity_cmd)},
+              {"angular_velocity_cmd",static_cast<double>(m->angular_velocity_cmd)},
+              {"steering_limit_active",m->steering_limit_active},
+              {"safety_stop_active",m->safety_stop_active},
+              {"data_valid",m->data_valid},
+              {"lateral_within_tolerance",m->lateral_within_tolerance},
+              {"yaw_within_tolerance",m->yaw_within_tolerance},
+              {"steering_centered",m->steering_centered},
+              {"ready_for_insertion",m->ready_for_insertion}
+            });
           });
 
         sub<sensor_msgs::msg::NavSatFix>(n,"/gnss/fix_raw",sensor,[this](sensor_msgs::msg::NavSatFix::ConstSharedPtr m){
@@ -1331,6 +1385,43 @@ namespace {
         cloud("/perception/path_relevant_points","path_relevant_points");
         cloud("/perception/planning_relevant_points","planning_relevant_points");
         cloud("/perception/drivable_boundary_points","drivable_boundary_points");
+
+        // GUI-only ROS graph health. This does not start, stop, configure, or
+        // modify Nav2/TF. It only reports nodes/publishers that already exist so
+        // System Overview does not infer TF from EKF or Nav2 from a missing
+        // /system/nav2_ready publisher.
+        auto graphHealthTimer=n->create_wall_timer(1000ms,[this,n](){
+          bool planner=false,controller=false,bt=false,behavior=false,smoother=false;
+          const auto names=n->get_node_names();
+          for(const auto &rawName:names){
+            const QString name=QString::fromStdString(rawName);
+            if(name.endsWith(QStringLiteral("/planner_server"))||name==QStringLiteral("planner_server"))planner=true;
+            else if(name.endsWith(QStringLiteral("/controller_server"))||name==QStringLiteral("controller_server"))controller=true;
+            else if(name.endsWith(QStringLiteral("/bt_navigator"))||name==QStringLiteral("bt_navigator"))bt=true;
+            else if(name.endsWith(QStringLiteral("/behavior_server"))||name==QStringLiteral("behavior_server"))behavior=true;
+            else if(name.endsWith(QStringLiteral("/velocity_smoother"))||name==QStringLiteral("velocity_smoother"))smoother=true;
+          }
+          const int coreCount=(planner?1:0)+(controller?1:0)+(bt?1:0);
+          emitMap("nav2_runtime",{
+            {"planner_server",planner},
+            {"controller_server",controller},
+            {"bt_navigator",bt},
+            {"behavior_server",behavior},
+            {"velocity_smoother",smoother},
+            {"core_count",coreCount},
+            {"core_present",coreCount>=3},
+            {"node_count",static_cast<int>(names.size())}
+          });
+          const auto dynamicPublishers=n->count_publishers("/tf");
+          const auto staticPublishers=n->count_publishers("/tf_static");
+          emitMap("tf_runtime",{
+            {"dynamic_publishers",QVariant::fromValue<qulonglong>(dynamicPublishers)},
+            {"static_publishers",QVariant::fromValue<qulonglong>(staticPublishers)},
+            {"available",(dynamicPublishers+staticPublishers)>0}
+          });
+        });
+        (void)graphHealthTimer;
+
         goalPub_=n->create_publisher<geometry_msgs::msg::PoseStamped>("/navigation/goal_request",10);
         initialPub_=n->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/initialpose",10);
         emit ready(true,"ROS 2 C++ bridge aktif");

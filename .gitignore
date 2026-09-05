@@ -12,3 +12,6 @@ __pycache__/
 .idea/
 .DS_Store
 *~
+
+# Large local datasets / archives
+/models/dataset/roboflow/dataset final.zip

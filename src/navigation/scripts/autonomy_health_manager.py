@@ -19,7 +19,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from geometry_msgs.msg import PoseWithCovarianceStamped
-from lifecycle_msgs.msg import State
+from lifecycle_msgs.msg import State, TransitionEvent
 from lifecycle_msgs.srv import GetState
 from nav_msgs.msg import OccupancyGrid, Odometry
 from std_msgs.msg import Bool, String
@@ -97,6 +97,15 @@ class AutonomyHealthManager(Node):
         self.lifecycle_seen: Dict[str, float] = {n: 0.0 for n in self.lifecycle_names}
         self.lifecycle_pending: Dict[str, bool] = {n: False for n in self.lifecycle_names}
         self.lifecycle_generation: Dict[str, int] = {n: 0 for n in self.lifecycle_names}
+        lifecycle_event_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST, depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE)
+        for lifecycle_name in self.lifecycle_names:
+            self.create_subscription(
+                TransitionEvent, f'/{lifecycle_name}/transition_event',
+                lambda msg, n=lifecycle_name: self._lifecycle_event(n, msg),
+                lifecycle_event_qos)
         self.lifecycle_timer = self.create_timer(
             max(0.2, float(self.get_parameter('lifecycle_poll_sec').value)), self._poll_lifecycle)
 
@@ -149,17 +158,38 @@ class AutonomyHealthManager(Node):
         c = msg.pose.covariance
         self.amcl_cov = (float(c[0]), float(c[7]), float(c[35]))
 
+    def _lifecycle_event(self, name: str, msg: TransitionEvent):
+        try:
+            self.lifecycle_states[name] = int(msg.goal_state.id)
+            self.lifecycle_seen[name] = self._mono()
+            self.lifecycle_pending[name] = False
+        except Exception:
+            pass
+
+    def _graph_lifecycle_names(self):
+        try:
+            return {name for name, _ns in self.get_node_names_and_namespaces()}
+        except Exception:
+            return set()
+
     def _poll_lifecycle(self):
+        # Event-driven after bootstrap. GetState is used only when a live node has
+        # no known lifecycle state yet, preventing periodic RPC storms on Jetson.
         now = self._mono()
+        live_nodes = self._graph_lifecycle_names()
         response_timeout = max(0.5, float(self.get_parameter('lifecycle_response_timeout_sec').value))
         for name, client in self.lifecycle_clients.items():
+            if name not in live_nodes:
+                self.lifecycle_states[name] = None
+                self.lifecycle_pending[name] = False
+                continue
+            if self.lifecycle_states.get(name) is not None:
+                continue
             if self.lifecycle_pending[name] and now - self.lifecycle_seen[name] <= response_timeout:
                 continue
             if self.lifecycle_pending[name] and now - self.lifecycle_seen[name] > response_timeout:
                 self.lifecycle_pending[name] = False
-                self.lifecycle_states[name] = None
             if not client.service_is_ready():
-                self.lifecycle_states[name] = None
                 continue
             self.lifecycle_pending[name] = True
             self.lifecycle_seen[name] = now
@@ -169,16 +199,18 @@ class AutonomyHealthManager(Node):
             fut.add_done_callback(lambda f, n=name, g=generation: self._lifecycle_done(n, g, f))
 
     def _lifecycle_done(self, name: str, generation: int, future):
-        # Ignore a late response from a request that already timed out and was
-        # superseded; stale ACTIVE responses must never reopen the motion gate.
         if generation != self.lifecycle_generation[name]:
             return
         self.lifecycle_pending[name] = False
-        self.lifecycle_seen[name] = self._mono()
         try:
             self.lifecycle_states[name] = int(future.result().current_state.id)
+            self.lifecycle_seen[name] = self._mono()
         except Exception:
-            self.lifecycle_states[name] = None
+            # Keep fail-closed bootstrap state unknown. Future timer iterations
+            # may retry once, but known event-derived states are never erased by
+            # a late RPC timeout.
+            if self.lifecycle_states.get(name) is None:
+                self.lifecycle_seen[name] = 0.0
 
     def _fresh_true(self, key: str, timeout_param: str, reasons) -> bool:
         t = self.last.get(key)
@@ -234,13 +266,14 @@ class AutonomyHealthManager(Node):
         return True
 
     def _lifecycle_ok(self, reasons) -> bool:
-        now = self._mono()
-        timeout = float(self.get_parameter('lifecycle_response_timeout_sec').value)
+        # Lifecycle state is persistent, not a freshness signal. Node graph
+        # liveness is checked by _poll_lifecycle; an absent process resets state
+        # to None. This avoids declaring ACTIVE nodes missing just because a
+        # GetState response arrived late.
         ok = True
         for name in self.lifecycle_names:
             state = self.lifecycle_states.get(name)
-            fresh = self.lifecycle_seen.get(name, 0.0) > 0 and now - self.lifecycle_seen[name] <= timeout
-            if state != State.PRIMARY_STATE_ACTIVE or not fresh:
+            if state != State.PRIMARY_STATE_ACTIVE:
                 reasons.append(f'lifecycle:{name}:{state if state is not None else "missing"}')
                 ok = False
         return ok

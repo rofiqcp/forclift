@@ -138,11 +138,14 @@ public:
 
   bool start_scan(int wait_ms = 1500);
   bool stop_scan();
+  bool get_scan_frequency(double & hz, int timeout_ms = 700);
+  bool set_scan_frequency(double target_hz, double & actual_hz);
   void mark_stream_running();
   std::string get_motor_state() const;
 
 private:
   bool probe_for_sync(int wait_ms);
+  bool command_scan_frequency(uint8_t command, double & hz, int timeout_ms);
 
   LiDARConnector & connector_;
   mutable std::mutex mutex_;
@@ -254,6 +257,8 @@ private:
   int baudrate_{230400};
   std::string frame_id_{"lidar_link"};
   double scan_frequency_{10.0};
+  double scan_publish_rate_{10.0};
+  double hardware_scan_frequency_{0.0};
   double scan_timeout_{0.3};
   double stream_recovery_timeout_{2.5};
   double stream_recovery_cooldown_{1.0};

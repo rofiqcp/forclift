@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="agv_forklift_joints">
+  <!-- Navigation frames obey REP-103.  All original CAD coordinates remain
+       under cad_link and are rotated as one rigid assembly. -->
+  <joint name="base_footprint_joint" type="fixed"><parent link="base_footprint"/><child link="base_link"/><origin xyz="0 0 0.572498958207" rpy="0 0 0"/></joint>
+  <joint name="cad_alignment_joint" type="fixed"><parent link="base_link"/><child link="cad_link"/><origin xyz="0 0 0" rpy="0 0 ${cad_to_base_yaw_rad}"/></joint>
+  <joint name="body_joint" type="fixed"><parent link="cad_link"/><child link="body_link"/><origin xyz="0 0 0" rpy="0 0 0"/></joint>
+  <joint name="mast_joint" type="fixed"><parent link="cad_link"/><child link="mast_link"/><origin xyz="0 0 0" rpy="0 0 0"/></joint>
+  <joint name="fork_joint" type="fixed"><parent link="cad_link"/><child link="fork_link"/><origin xyz="0 0 0" rpy="0 0 0"/></joint>
+  <joint name="steering_assembly_joint" type="fixed"><parent link="cad_link"/><child link="steering_link"/><origin xyz="0 0 0" rpy="0 0 0"/></joint>
+
+  <joint name="steering_joint" type="revolute">
+    <parent link="cad_link"/><child link="steering_control_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/><limit lower="-${max_steering_angle_rad}" upper="${max_steering_angle_rad}" effort="100" velocity="1.0"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint>
+
+  <joint name="front_left_steering_joint" type="revolute">
+    <parent link="cad_link"/><child link="front_left_steering_link"/>
+    <origin xyz="-0.279034309 0.561102248 -0.493144264" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/><limit lower="-${max_steering_angle_rad}" upper="${max_steering_angle_rad}" effort="100" velocity="1.0"/>
+    <mimic joint="steering_joint" multiplier="1.0" offset="0.0"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint>
+
+  <joint name="front_left_wheel_joint" type="continuous"><parent link="front_left_steering_link"/><child link="front_left_wheel_link"/><origin xyz="0 0 0" rpy="0 0 0"/><axis xyz="1 0 0"/><dynamics damping="0.1" friction="0.01"/></joint>
+
+  <joint name="front_right_steering_joint" type="revolute">
+    <parent link="cad_link"/><child link="front_right_steering_link"/>
+    <origin xyz="0.278833447 0.558904174 -0.493144264" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/><limit lower="-${max_steering_angle_rad}" upper="${max_steering_angle_rad}" effort="100" velocity="1.0"/>
+    <mimic joint="steering_joint" multiplier="1.0" offset="0.0"/>
+    <dynamics damping="0.1" friction="0.01"/>
+  </joint>
+
+  <joint name="front_right_wheel_joint" type="continuous"><parent link="front_right_steering_link"/><child link="front_right_wheel_link"/><origin xyz="0 0 0" rpy="0 0 0"/><axis xyz="1 0 0"/><dynamics damping="0.1" friction="0.01"/></joint>
+  <joint name="rear_left_wheel_joint" type="continuous"><parent link="cad_link"/><child link="rear_left_wheel_link"/><origin xyz="-0.269999988 -0.410001642 -0.532504425" rpy="0 0 0"/><axis xyz="1 0 0"/><dynamics damping="0.1" friction="0.01"/></joint>
+  <joint name="rear_right_wheel_joint" type="continuous"><parent link="cad_link"/><child link="rear_right_wheel_link"/><origin xyz="0.269999982 -0.410005732 -0.532510080" rpy="0 0 0"/><axis xyz="1 0 0"/><dynamics damping="0.1" friction="0.01"/></joint>
+
+  <!--
+    Geometry-derived frame for the highest horizontal mast beam (mast_003 + mast_005).
+    Values below are CAD mesh bounds in metres, not hand-tuned robot/world coordinates.
+    CAD is transformed to ROS by the links.xacro visual transform:
+      ROS x = mesh_tx + CAD x
+      ROS y = mesh_ty - CAD z
+      ROS z = mesh_tz + CAD y
+  -->
+  <xacro:property name="mast_mesh_tx" value="-0.351649981"/>
+  <xacro:property name="mast_mesh_ty" value="0.665947638"/>
+  <xacro:property name="mast_mesh_tz" value="-0.604650887"/>
+  <xacro:property name="beam_cad_x_min" value="0.038649990"/>
+  <xacro:property name="beam_cad_x_max" value="0.664650024"/>
+  <xacro:property name="beam_cad_y_min" value="0.503150879"/>
+  <xacro:property name="beam_cad_y_max" value="0.506150879"/>
+  <xacro:property name="beam_cad_z_min" value="0.279947662"/>
+  <xacro:property name="beam_cad_z_max" value="0.351947662"/>
+  <xacro:property name="sensor_mount_thickness" value="0.020"/>
+
+  <!-- top_cross_beam_link origin is the geometric centre of the beam bounds. -->
+  <joint name="top_cross_beam_joint" type="fixed">
+    <parent link="mast_link"/>
+    <child link="top_cross_beam_link"/>
+    <origin xyz="${mast_mesh_tx + (beam_cad_x_min + beam_cad_x_max)/2}
+                 ${mast_mesh_ty - (beam_cad_z_min + beam_cad_z_max)/2}
+                 ${mast_mesh_tz + (beam_cad_y_min + beam_cad_y_max)/2}"
+            rpy="0 0 0"/>
+  </joint>
+
+  <!--
+    Local parent coordinates only: x=y=0 is the beam centre.  z is the beam
+    half-thickness plus the mount half-thickness, so the mount sits on its top face.
+  -->
+  <joint name="sensor_mount_joint" type="fixed">
+    <parent link="top_cross_beam_link"/>
+    <child link="sensor_mount_link"/>
+    <origin xyz="0 0 ${(beam_cad_y_max - beam_cad_y_min)/2 + sensor_mount_thickness/2}"
+            rpy="0 0 0"/>
+  </joint>
+  <joint name="lidar_joint" type="fixed"><parent link="sensor_mount_link"/><child link="lidar_link"/><origin xyz="0 0 0.027" rpy="0 0 0"/></joint>
+
+  <!-- No pan-servo controller/state source is present in this runtime. Keep the Astra
+       optical chain deterministic at the calibrated center angle instead of leaving TF unresolved. -->
+  <joint name="pan_servo_joint" type="fixed">
+    <parent link="sensor_mount_link"/><child link="pan_servo_link"/>
+    <origin xyz="0 0 0.079" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="camera_joint" type="fixed"><parent link="pan_servo_link"/><child link="camera_link"/><origin xyz="0 0 0.085" rpy="0 0 0"/></joint>
+  <joint name="camera_color_joint" type="fixed"><parent link="camera_link"/><child link="camera_color_frame"/><origin xyz="0 0 0" rpy="0 0 0"/></joint>
+  <joint name="camera_color_optical_joint" type="fixed"><parent link="camera_color_frame"/><child link="camera_color_optical_frame"/><origin xyz="0 0 0" rpy="-1.570796326795 0 -1.570796326795"/></joint>
+  <joint name="camera_depth_joint" type="fixed"><parent link="camera_link"/><child link="camera_depth_frame"/><origin xyz="0 0 0" rpy="0 0 0"/></joint>
+  <joint name="camera_depth_optical_joint" type="fixed"><parent link="camera_depth_frame"/><child link="camera_depth_optical_frame"/><origin xyz="0 0 0" rpy="-1.570796326795 0 -1.570796326795"/></joint>
+
+  <!-- IMU is fixed inside the gearbox/steering gearbox assembly, not on the LiDAR stack. -->
+  <joint name="gearbox_joint" type="fixed"><parent link="steering_link"/><child link="gearbox_link"/><origin xyz="0 0.50 -0.42" rpy="0 0 0"/></joint>
+  <joint name="imu_joint" type="fixed"><parent link="gearbox_link"/><child link="imu_link"/><origin xyz="0 0 0" rpy="0 0 0"/></joint>
+</robot>

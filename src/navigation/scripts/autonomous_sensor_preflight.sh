@@ -55,8 +55,10 @@ stop_old_launch_parents() {
         echo "[AUTONOMOUS-SENSOR-PREFLIGHT] ignoring zombie old launch pid=$oldpid ($launch_name)"
         continue
       fi
-      echo "[AUTONOMOUS-SENSOR-PREFLIGHT] stopping OLD launch pid=$oldpid ($launch_name)"
-      kill -TERM "$oldpid" 2>/dev/null || true
+      echo "[AUTONOMOUS-SENSOR-PREFLIGHT] stopping OLD launch gracefully pid=$oldpid ($launch_name)"
+      # SIGINT lets ros2 launch propagate an orderly shutdown to respawn-enabled
+      # sensor children before this preflight considers any forced cleanup.
+      kill -INT "$oldpid" 2>/dev/null || true
     done < <(pgrep -f "ros2.*launch.*navigation.*${launch_name}" 2>/dev/null || true)
   done
 }
@@ -103,7 +105,11 @@ patterns=(
   "/nav2_velocity_smoother/velocity_smoother"
   "/nav2_collision_monitor/collision_monitor"
   "/nav2_lifecycle_manager/lifecycle_manager"
+  "/esc/lib/esc/esc_driver"
+  "/esc/lib/esc/esc_command_mux"
+  "/esc/lib/esc/winch_serial_node"
   "/esc/lib/esc/ackermann_controller_server"
+  "/navigation/lib/navigation/agv_web_gui"
   "/navigation/lib/navigation/goal_pose_nav2_bridge"
   "/navigation/lib/navigation/autonomous_sensor_cmd_guard.py"
 )
@@ -111,7 +117,10 @@ patterns=(
 for pat in "${patterns[@]}"; do
   pkill -TERM -f -- "$pat" 2>/dev/null || true
 done
-sleep 1.0
+# Default remains 1.0 s for autonomous/GUI callers. Mapping may request a
+# longer grace period so lidar_node can finish A5 65 + motor-off cleanly before
+# any forced kill/reopen of the same CP210x transport.
+sleep "${AGV_SENSOR_TERM_GRACE_SEC:-1.0}"
 
 # Force-kill only sensor/mapping-runtime processes that survived SIGTERM.
 for pat in "${patterns[@]}"; do
@@ -252,7 +261,12 @@ role_topology_ready() {
   [[ "$driver" == "cp210x" ]] || return 1
   for tty in /sys/class/tty/ttyUSB*; do
     [[ -e "$tty" ]] || continue
-    [[ "$(basename "$(readlink -f "$tty/device" 2>/dev/null || true)")" == "$iface" ]] || continue
+    # /sys/class/tty/ttyUSBX/device resolves to .../<iface>/ttyUSBX.
+    # Compare the PARENT directory with the expected USB interface, not the
+    # tty leaf name itself; the old comparison always returned false and
+    # triggered destructive CP210x recovery on healthy devices.
+    tty_iface=$(basename "$(dirname "$(readlink -f "$tty/device" 2>/dev/null || true)")")
+    [[ "$tty_iface" == "$iface" ]] || continue
     [[ -e "/dev/$(basename "$tty")" ]] || continue
     return 0
   done

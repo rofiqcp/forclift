@@ -1,0 +1,37 @@
+# V4L2 Astra RGB camera configuration
+# These are runtime parameters for the astra_rgb_v4l2_node.
+# Run: ros2 run yolo_obstacle_detection_ros2 astra_rgb_v4l2_node
+# Or: ros2 launch yolo_obstacle_detection_ros2 camera.launch.py
+
+/**:
+  ros__parameters:
+    # Device selection: "auto" = discover by-id/by-path, or /dev/videoX
+    device: "auto"
+
+    # Target resolution and framerate
+    width: 1280
+    height: 720
+    fps: 15
+
+    # Pixel format: MJPG (preferred, low CPU), YUYV (fallback)
+    pixel_format: "MJPG"
+
+    # ROS frame ID for the camera optical frame
+    frame_id: "camera_color_optical_frame"
+
+    # Path to camera calibration YAML from camera_calibration (optional)
+    # If empty, approximate intrinsics are used
+    calibration_url: ""
+
+    # Reconnect behaviour
+    reconnect_interval_ms: 1000
+    frame_timeout_ms: 3000
+
+    # Depth is not enabled: RGB-only for now
+    enable_depth: false
+
+    # GPU decode: use NVIDIA nvv4l2decoder for hardware MJPG decode (default: true)
+    use_gpu_decode: true
+
+    # Availability-first production mode: prefer GPU, but keep images via CPU fallback if needed.
+    require_gpu_decode: false

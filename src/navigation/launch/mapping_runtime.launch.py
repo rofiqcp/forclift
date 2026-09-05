@@ -148,6 +148,10 @@ def generate_launch_description():
     sensor_preflight = ExecuteProcess(
         cmd=['bash', preflight_script],
         output='screen',
+        # Mapping reopens the same LiDAR transport immediately after preflight.
+        # Give lidar_node enough time to send A5 65 and power the motor down
+        # cleanly. Other callers keep the preflight's original 1.0 s default.
+        additional_env={'AGV_SENSOR_TERM_GRACE_SEC': '2.5'},
     )
 
     robot_description = xacro.process_file(
@@ -275,6 +279,7 @@ def generate_launch_description():
             'yaw_filter_alpha': 0.25,
             'visual_position_deadband_m': 0.0080,
             'visual_yaw_deadband_rad': 0.0040,
+            'visual_model_yaw_offset_rad': 3.141592653590,
         }])
 
     lidar = IncludeLaunchDescription(
@@ -480,12 +485,18 @@ def generate_launch_description():
             'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
         }])
 
-    # Atomic resolver -> non-invasive transport gate -> both drivers.
+    # Deterministic serial handoff: resolver must finish creating stable aliases
+    # before either transport gate is allowed to inspect them. This matches the
+    # GUI sensor runtime that already publishes LiDAR reliably.
+    start_sensor_gate = TimerAction(period=0.80, actions=[sensor_gate])
+    start_transport_after_resolver = _success_only_exit(
+        role_resolver_serial,
+        [imu_transport_ready, lidar_transport_ready, start_sensor_gate],
+        'serial-role-resolver')
     start_imu_after_transport_ready = _success_only_exit(
         imu_transport_ready, [delayed_imu], 'imu-transport-ready')
     start_lidar_after_transport_ready = _success_only_exit(
         lidar_transport_ready, [delayed_lidar], 'lidar-transport-ready')
-    start_sensor_gate = TimerAction(period=0.80, actions=[sensor_gate])
     start_mapping_consumers_after_sensor_gate = _success_only_exit(
         sensor_gate, [delayed_lidar_odom, delayed_imu_visual_tf, delayed_slam,
                       delayed_monitor, delayed_rviz], 'map-serial-topic-gate')
@@ -538,13 +549,14 @@ def generate_launch_description():
         sensor_preflight,
         [robot_state, joint_state, visual_robot_state, ekf,
          localization_timing_monitor, manual_motion_health, esc,
-         role_resolver_serial, imu_transport_ready, lidar_transport_ready, start_sensor_gate, start_camera_resolver],
+         role_resolver_serial, start_camera_resolver],
         'sensor-preflight')
 
     return LaunchDescription(args + [
         geometry_log,
         # Register transitions before the sole direct Stage-0 process.
         start_foundation_after_preflight,
+        start_transport_after_resolver,
         start_imu_after_transport_ready,
         start_lidar_after_transport_ready,
         start_mapping_consumers_after_sensor_gate,

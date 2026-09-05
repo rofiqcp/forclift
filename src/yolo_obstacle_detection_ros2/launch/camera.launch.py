@@ -19,7 +19,10 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     share_dir = get_package_share_directory('yolo_obstacle_detection_ros2')
-    params_file = os.path.join(share_dir, 'config', 'camera_v4l2.yaml')
+    ws = os.environ.get('AGV_WS', '/home/otomasi2/ros')
+    runtime_root = os.environ.get('AGV_RUNTIME_CONFIG_ROOT', os.path.join(ws, 'config', 'runtime'))
+    runtime_file = os.path.join(runtime_root, 'yolo_obstacle_detection_ros2', 'camera_v4l2.yaml')
+    params_file = runtime_file if os.path.isfile(runtime_file) else os.path.join(share_dir, 'config', 'camera_v4l2.yaml')
 
     args = [
         DeclareLaunchArgument('device', default_value='auto',
@@ -54,24 +57,10 @@ def generate_launch_description():
         output='screen',
         respawn=True,
         respawn_delay=2.0,
+        # Runtime YAML is the tuning authority. Structural camera changes are
+        # applied by respawning this node; use_sim_time is the only launch override.
         parameters=[params_file, {
-            'device': LaunchConfiguration('device'),
-            'width': ParameterValue(LaunchConfiguration('width'), value_type=int),
-            'height': ParameterValue(LaunchConfiguration('height'), value_type=int),
-            'fps': ParameterValue(LaunchConfiguration('fps'), value_type=int),
-            'pixel_format': LaunchConfiguration('pixel_format'),
-            'frame_id': LaunchConfiguration('frame_id'),
-            'calibration_url': LaunchConfiguration('calibration_url'),
-            'reconnect_interval_ms': ParameterValue(
-                LaunchConfiguration('reconnect_interval_ms'), value_type=int),
-            'frame_timeout_ms': ParameterValue(
-                LaunchConfiguration('frame_timeout_ms'), value_type=int),
-            'use_gpu_decode': ParameterValue(
-                LaunchConfiguration('use_gpu_decode'), value_type=bool),
-            'require_gpu_decode': ParameterValue(
-                LaunchConfiguration('require_gpu_decode'), value_type=bool),
-            'use_sim_time': ParameterValue(
-                LaunchConfiguration('use_sim_time'), value_type=bool),
+            'use_sim_time': ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool),
         }],
     )
 

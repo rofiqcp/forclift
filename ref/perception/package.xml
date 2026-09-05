@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>perception</name>
+  <version>1.4.2</version>
+  <description>OFF/CPU/GPU YOLOPv2 perception for ROS 2 Humble; CPU accepts the official .pt model and GPU uses TensorRT.</description>
+  <maintainer email="otomasi@otomasi.com">otomasi</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>vision_msgs</depend>
+  <!-- OpenCV core/imgproc/videoio is the camera/image baseline.
+       LibTorch CPU and CUDA/TensorRT GPU are optional build capabilities discovered by CMake. -->
+  <depend>libopencv-dev</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <!-- CPU runtime membaca TorchScript yolopv2.pt langsung melalui LibTorch.
+       ONNX hanya opsional untuk proses offline pembuatan TensorRT engine GPU. -->
+  <exec_depend>python3</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-pip</exec_depend>
+  <!-- torch dipasang pada system Python target agar CMake dapat menemukan LibTorch.
+       onnx/onnxruntime hanya opsional untuk tool konversi engine GPU. -->
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -1,0 +1,14 @@
+/**:
+  ros__parameters:
+    device: auto
+    width: 1280
+    height: 720
+    fps: 15
+    pixel_format: MJPG
+    frame_id: camera_color_optical_frame
+    calibration_url: ''
+    reconnect_interval_ms: 1000
+    frame_timeout_ms: 3000
+    enable_depth: false
+    use_gpu_decode: true
+    require_gpu_decode: false

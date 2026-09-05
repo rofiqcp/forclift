@@ -1,0 +1,14 @@
+path: /home/otomasi2/Documents/AGV Forklift/dataset/roboflow/extracted
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 5
+names: ['floor marking', 'block', 'front', 'hole pallet', 'pallet']
+
+roboflow:
+  workspace: ikbal-ahnaf
+  project: dataset-final
+  version: 1
+  license: Public Domain
+  url: https://universe.roboflow.com/ikbal-ahnaf/dataset-final/dataset/1

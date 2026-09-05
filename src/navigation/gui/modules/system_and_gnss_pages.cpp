@@ -536,6 +536,45 @@ class ExperimentWorkspacePage : public QWidget {
     buttons->addWidget(save);
     buttons->addWidget(clear);
     layout->addLayout(buttons);
+
+    // Perception-only validation preview. It reuses the SAME annotated image and
+    // TelemetryStore values already received by the GUI: no duplicate ROS node,
+    // subscriber, recorder, or perception processing path is introduced.
+    if (subsystem_ == QStringLiteral("perception")) {
+      perceptionPreviewBox_ = new QGroupBox(QStringLiteral("Preview Validasi Perception — Data Aktual"));
+      auto *previewLayout = new QHBoxLayout(perceptionPreviewBox_);
+      perceptionPreviewImage_ = new QLabel(QStringLiteral("Menunggu frame anotasi perception..."));
+      perceptionPreviewImage_->setAlignment(Qt::AlignCenter);
+      perceptionPreviewImage_->setMinimumSize(460, 260);
+      perceptionPreviewImage_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+      perceptionPreviewImage_->setStyleSheet(QStringLiteral(
+        "QLabel{background:#090d13;border:1px solid #344255;border-radius:6px;color:#8fa4bd;padding:4px;}"));
+      previewLayout->addWidget(perceptionPreviewImage_, 3);
+
+      auto *side = new QWidget();
+      auto *sideLayout = new QVBoxLayout(side);
+      sideLayout->setContentsMargins(0, 0, 0, 0);
+      perceptionPreviewTitle_ = new QLabel();
+      perceptionPreviewTitle_->setWordWrap(true);
+      perceptionPreviewTitle_->setStyleSheet(QStringLiteral("font-weight:800;font-size:14px;"));
+      sideLayout->addWidget(perceptionPreviewTitle_);
+      perceptionPreviewHint_ = new QLabel();
+      perceptionPreviewHint_->setWordWrap(true);
+      perceptionPreviewHint_->setStyleSheet(QStringLiteral("color:#9fb2c8;"));
+      sideLayout->addWidget(perceptionPreviewHint_);
+      perceptionPreviewStatus_ = new QLabel(QStringLiteral("FRAME: menunggu | DATA: menunggu"));
+      perceptionPreviewStatus_->setWordWrap(true);
+      sideLayout->addWidget(perceptionPreviewStatus_);
+      perceptionMetricsHost_ = new QWidget();
+      perceptionMetricsLayout_ = new QGridLayout(perceptionMetricsHost_);
+      perceptionMetricsLayout_->setContentsMargins(0, 0, 0, 0);
+      perceptionMetricsLayout_->setHorizontalSpacing(6);
+      perceptionMetricsLayout_->setVerticalSpacing(6);
+      sideLayout->addWidget(perceptionMetricsHost_, 1);
+      previewLayout->addWidget(side, 2);
+      layout->addWidget(perceptionPreviewBox_);
+    }
+
     // Multi-graph workspace (scrollable vertical stack of GraphCards)
     graphScroll_ = new QScrollArea();
     graphScroll_->setWidgetResizable(true);
@@ -617,6 +656,13 @@ class ExperimentWorkspacePage : public QWidget {
     currentTableIndex_ = 0;
     applyLeaf();
   }
+  // Called by MainWindow with the same annotated QImage already shown by CameraPage.
+  void setPerceptionImage(const QImage &image) {
+    if (subsystem_ != QStringLiteral("perception") || image.isNull()) return;
+    perceptionFrame_ = image;
+    if (perceptionFrameClock_.isValid()) perceptionFrameClock_.restart();
+    else perceptionFrameClock_.start();
+  }
   // Used by MainWindow to push the active leaf's parameter definition to the sidebar.
   const QVector<ExperimentParameterField> &parameterFields() const {
     static const QVector<ExperimentParameterField> empty;
@@ -663,6 +709,18 @@ class ExperimentWorkspacePage : public QWidget {
   QGroupBox *tableBox_;
   QVector<GraphCard*> graphCards_;
   QTableWidget *table_;
+
+  // Perception preview widgets/data. Null for Navigation and ESC pages.
+  QGroupBox *perceptionPreviewBox_ = nullptr;
+  QLabel *perceptionPreviewImage_ = nullptr;
+  QLabel *perceptionPreviewTitle_ = nullptr;
+  QLabel *perceptionPreviewHint_ = nullptr;
+  QLabel *perceptionPreviewStatus_ = nullptr;
+  QWidget *perceptionMetricsHost_ = nullptr;
+  QGridLayout *perceptionMetricsLayout_ = nullptr;
+  QMap<QString, QLabel*> perceptionMetricLabels_;
+  QImage perceptionFrame_;
+  QElapsedTimer perceptionFrameClock_;
   QTimer *timer_, *availabilityTimer_;
   QElapsedTimer elapsed_;
   QElapsedTimer liveElapsed_;
@@ -770,6 +828,10 @@ class ExperimentWorkspacePage : public QWidget {
       tableSelector_->setCurrentIndex(currentTableIndex_);
     }
     rebuildGraphCards();
+    if (subsystem_ == QStringLiteral("perception")) {
+      rebuildPerceptionPreviewMetrics();
+      refreshPerceptionPreview();
+    }
     loading_ = true;
     const QStringList cols = currentColumns();
     table_->clear();
@@ -783,6 +845,219 @@ class ExperimentWorkspacePage : public QWidget {
     pushParameterPanel();
     updateAvailability();
   }
+  QString perceptionPreviewHint() const {
+    if (currentId_.startsWith(QStringLiteral("4.2")))
+      return QStringLiteral("Cek bounding box halangan, confidence, posisi pusat deteksi, warning/path status, lalu cocokkan dengan kondisi/jarak aktual.");
+    if (currentId_.startsWith(QStringLiteral("4.3")))
+      return QStringLiteral("Cek class pallet/hole pallet, pusat deteksi pallet, confidence, kestabilan deteksi, lalu cocokkan dengan jarak/orientasi/pencahayaan aktual.");
+    if (currentId_.startsWith(QStringLiteral("4.4")))
+      return QStringLiteral("Crosshair menunjukkan pusat citra. Bandingkan error pixel/normalisasi serta error lateral/yaw runtime dengan ground truth pengukuran.");
+    if (currentId_.startsWith(QStringLiteral("4.5")))
+      return QStringLiteral("Pantau error lateral/yaw menuju nol, output kontrol, status toleransi, steering, dan safety selama proses docking.");
+    if (currentId_ == QStringLiteral("4.1.5"))
+      return QStringLiteral("Subbab training: preview runtime dipakai sebagai sanity-check implementasi model. Nilai training utama tetap berasal dari artefak training, bukan estimasi GUI.");
+    return QStringLiteral("Cek frame anotasi, jumlah deteksi, confidence, FPS, kesehatan kamera, dan kesesuaian visual dengan kondisi fisik sebelum merekam data.");
+  }
+  QStringList perceptionPreviewPaths() const {
+    QStringList paths;
+    auto add=[&paths](const QString &p){ if(!p.isEmpty() && !paths.contains(p)) paths << p; };
+    add(QStringLiteral("camera_healthy"));
+    add(QStringLiteral("perception_performance.fps"));
+    add(QStringLiteral("raw_detections.count"));
+    add(QStringLiteral("raw_detections.mean_confidence"));
+    if(currentId_.startsWith(QStringLiteral("4.2"))){
+      add(QStringLiteral("raw_detections.best_class_name"));
+      add(QStringLiteral("raw_detections.best_confidence"));
+      add(QStringLiteral("raw_detections.best_center_x_px"));
+      add(QStringLiteral("raw_detections.best_center_y_px"));
+      add(QStringLiteral("raw_detections.warning_active"));
+    }
+    if(currentId_.startsWith(QStringLiteral("4.3"))){
+      add(QStringLiteral("raw_detections.pallet_count"));
+      add(QStringLiteral("raw_detections.pallet_best_class_name"));
+      add(QStringLiteral("raw_detections.pallet_best_confidence"));
+      add(QStringLiteral("raw_detections.pallet_best_center_x_px"));
+      add(QStringLiteral("raw_detections.pallet_best_center_y_px"));
+      add(QStringLiteral("alignment_state.detection_stable"));
+    }
+    if(currentId_.startsWith(QStringLiteral("4.4"))){
+      add(QStringLiteral("derived.visual_error_px"));
+      add(QStringLiteral("derived.visual_error_normalized"));
+      add(QStringLiteral("derived.alignment_lateral_error_cm"));
+      add(QStringLiteral("alignment_state.error_yaw_deg"));
+      add(QStringLiteral("alignment_state.confidence"));
+      add(QStringLiteral("alignment_state.data_valid"));
+    }
+    if(currentId_.startsWith(QStringLiteral("4.5"))){
+      add(QStringLiteral("derived.alignment_lateral_error_cm"));
+      add(QStringLiteral("alignment_state.error_yaw_deg"));
+      add(QStringLiteral("alignment_state.pid_lateral_output"));
+      add(QStringLiteral("alignment_state.pid_yaw_output"));
+      add(QStringLiteral("alignment_state.estimated_steering_deg"));
+      add(QStringLiteral("alignment_state.linear_velocity_cmd"));
+      add(QStringLiteral("alignment_state.state_text"));
+      add(QStringLiteral("alignment_state.ready_for_insertion"));
+      add(QStringLiteral("alignment_state.safety_stop_active"));
+    }
+    for(auto it=spec().liveSeries.cbegin(); it!=spec().liveSeries.cend(); ++it) add(it.value());
+    return paths.mid(0, 12);
+  }
+  QString perceptionPreviewLabel(const QString &path) const {
+    static const QMap<QString,QString> names={
+      {"camera_healthy","Camera"},
+      {"perception_performance.fps","FPS"},
+      {"perception_performance.mean_ms","Process mean"},
+      {"perception_performance.capture_dropped","Capture drop"},
+      {"raw_detections.count","Detection count"},
+      {"raw_detections.mean_confidence","Mean confidence"},
+      {"raw_detections.best_class_name","Best class"},
+      {"raw_detections.best_confidence","Best confidence"},
+      {"raw_detections.best_center_x_px","Best center X"},
+      {"raw_detections.best_center_y_px","Best center Y"},
+      {"raw_detections.warning_active","Warning"},
+      {"raw_detections.pallet_count","Pallet count"},
+      {"raw_detections.pallet_best_class_name","Pallet class"},
+      {"raw_detections.pallet_best_confidence","Pallet confidence"},
+      {"raw_detections.pallet_best_center_x_px","Pallet center X"},
+      {"raw_detections.pallet_best_center_y_px","Pallet center Y"},
+      {"camera_health_state.mean_luma","Mean luma"},
+      {"camera_health_state.stddev_luma","Std luma"},
+      {"derived.visual_error_px","Visual error"},
+      {"derived.visual_error_normalized","Normalized error"},
+      {"derived.alignment_lateral_error_cm","Lateral error"},
+      {"alignment_state.error_yaw_deg","Yaw error"},
+      {"alignment_state.confidence","Align confidence"},
+      {"alignment_state.detection_stable","Detection stable"},
+      {"alignment_state.data_valid","Alignment data"},
+      {"alignment_state.pid_lateral_output","PID lateral"},
+      {"alignment_state.pid_yaw_output","PID yaw"},
+      {"alignment_state.estimated_steering_deg","Steering estimate"},
+      {"alignment_state.linear_velocity_cmd","Velocity cmd"},
+      {"alignment_state.state_text","Alignment state"},
+      {"alignment_state.ready_for_insertion","Ready insertion"},
+      {"alignment_state.safety_stop_active","Safety stop"}
+    };
+    return names.value(path,path);
+  }
+  QString formatPerceptionPreviewValue(const QString &path,const QVariant &value) const {
+    if(!value.isValid()) return QStringLiteral("NO DATA");
+    if(value.type()==QVariant::Bool) return value.toBool()?QStringLiteral("TRUE"):QStringLiteral("FALSE");
+    bool ok=false;
+    const double d=value.toDouble(&ok);
+    if(ok && std::isfinite(d)){
+      QString suffix;
+      if(path.endsWith(QStringLiteral("_px")) || path==QStringLiteral("derived.visual_error_px")) suffix=QStringLiteral(" px");
+      else if(path.endsWith(QStringLiteral("_deg"))) suffix=QStringLiteral("°");
+      else if(path.endsWith(QStringLiteral("_cm"))) suffix=QStringLiteral(" cm");
+      else if(path.endsWith(QStringLiteral(".fps"))) suffix=QStringLiteral(" Hz");
+      else if(path.endsWith(QStringLiteral("_ms"))) suffix=QStringLiteral(" ms");
+      return QString::number(d,'f',std::abs(d)>=100.0?1:3)+suffix;
+    }
+    QString text=value.toString().trimmed();
+    return text.isEmpty()?QStringLiteral("NO DATA"):text;
+  }
+  double perceptionPathAge(const QString &path) const {
+    QString channel=path.section('.',0,0);
+    if(channel==QStringLiteral("derived")){
+      if(path.contains(QStringLiteral("visual_error"))) channel=QStringLiteral("raw_detections");
+      else if(path.contains(QStringLiteral("alignment"))) channel=QStringLiteral("alignment_state");
+    }
+    return telemetry_->age(channel);
+  }
+  void rebuildPerceptionPreviewMetrics(){
+    if(!perceptionMetricsLayout_)return;
+    while(QLayoutItem *item=perceptionMetricsLayout_->takeAt(0)){
+      if(QWidget *w=item->widget())w->deleteLater();
+      delete item;
+    }
+    perceptionMetricLabels_.clear();
+    const QStringList paths=perceptionPreviewPaths();
+    for(int i=0;i<paths.size();++i){
+      const QString path=paths.at(i);
+      auto *card=new QLabel();
+      card->setWordWrap(true);
+      card->setMinimumWidth(145);
+      card->setAlignment(Qt::AlignLeft|Qt::AlignVCenter);
+      card->setToolTip(path);
+      perceptionMetricsLayout_->addWidget(card,i/2,i%2);
+      perceptionMetricLabels_[path]=card;
+    }
+    perceptionPreviewTitle_->setText(QStringLiteral("%1 — %2").arg(spec().id,spec().section));
+    perceptionPreviewHint_->setText(perceptionPreviewHint());
+  }
+  void refreshPerceptionPreview(){
+    if(subsystem_!=QStringLiteral("perception") || !perceptionPreviewBox_)return;
+    int live=0,total=0;
+    for(auto it=perceptionMetricLabels_.begin();it!=perceptionMetricLabels_.end();++it){
+      ++total;
+      const QVariant v=instantValue(it.key());
+      const double age=perceptionPathAge(it.key());
+      const bool fresh=v.isValid() && std::isfinite(age) && age<=2.0;
+      if(fresh)++live;
+      it.value()->setText(QStringLiteral("<b>%1</b><br>%2")
+        .arg(perceptionPreviewLabel(it.key()),formatPerceptionPreviewValue(it.key(),v).toHtmlEscaped()));
+      it.value()->setStyleSheet(fresh
+        ?QStringLiteral("QLabel{background:#12251c;border:1px solid #2e7d4d;border-radius:5px;padding:6px;}")
+        :QStringLiteral("QLabel{background:#2b2114;border:1px solid #8b6425;border-radius:5px;padding:6px;}"));
+    }
+
+    QString frameText=QStringLiteral("FRAME: NO IMAGE");
+    if(!perceptionFrame_.isNull()){
+      const double age=perceptionFrameClock_.isValid()?perceptionFrameClock_.elapsed()/1000.0:0.0;
+      frameText=QStringLiteral("FRAME: %1×%2 | age %3 s")
+        .arg(perceptionFrame_.width()).arg(perceptionFrame_.height()).arg(age,0,'f',2);
+      QImage canvas=perceptionFrame_.convertToFormat(QImage::Format_RGB32);
+      QPainter painter(&canvas);
+      painter.setRenderHint(QPainter::Antialiasing,true);
+      const int cx=canvas.width()/2, cy=canvas.height()/2;
+      QPen centerPen(QColor(40,220,240,210),2);
+      painter.setPen(centerPen);
+      painter.drawLine(cx,0,cx,canvas.height());
+      painter.drawLine(0,cy,canvas.width(),cy);
+
+      QString centerPath=currentId_.startsWith(QStringLiteral("4.3"))||
+                         currentId_.startsWith(QStringLiteral("4.4"))||
+                         currentId_.startsWith(QStringLiteral("4.5"))
+        ?QStringLiteral("raw_detections.pallet_best_center_x_px")
+        :QStringLiteral("raw_detections.best_center_x_px");
+      QString centerYPath=centerPath;
+      centerYPath.replace(QStringLiteral("center_x_px"),QStringLiteral("center_y_px"));
+      const double tx=number(telemetry_->get(centerPath));
+      const double ty=number(telemetry_->get(centerYPath));
+      if(std::isfinite(tx)&&std::isfinite(ty)){
+        QPen targetPen(QColor(255,205,55,235),3);
+        painter.setPen(targetPen);
+        painter.drawEllipse(QPointF(tx,ty),10,10);
+        painter.drawLine(QPointF(tx-16,ty),QPointF(tx+16,ty));
+        painter.drawLine(QPointF(tx,ty-16),QPointF(tx,ty+16));
+      }
+      const double visual=number(instantValue(QStringLiteral("derived.visual_error_px")));
+      const double lat=number(instantValue(QStringLiteral("derived.alignment_lateral_error_cm")));
+      const double yaw=number(telemetry_->get(QStringLiteral("alignment_state.error_yaw_deg")));
+      QStringList hud;
+      hud << spec().id;
+      if(std::isfinite(visual))hud << QStringLiteral("err_px=%1").arg(visual,0,'f',1);
+      if(std::isfinite(lat))hud << QStringLiteral("lat=%1cm").arg(lat,0,'f',2);
+      if(std::isfinite(yaw))hud << QStringLiteral("yaw=%1deg").arg(yaw,0,'f',2);
+      painter.setPen(Qt::white);
+      painter.setBrush(QColor(0,0,0,150));
+      QRect hudRect(8,8,std::min(560,canvas.width()-16),34);
+      painter.drawRect(hudRect);
+      painter.drawText(hudRect.adjusted(8,0,-4,0),Qt::AlignVCenter|Qt::AlignLeft,hud.join(QStringLiteral(" | ")));
+      painter.end();
+      const QSize targetSize=perceptionPreviewImage_->size().expandedTo(QSize(460,260));
+      perceptionPreviewImage_->setPixmap(QPixmap::fromImage(canvas).scaled(
+        targetSize,Qt::KeepAspectRatio,Qt::SmoothTransformation));
+    }else{
+      perceptionPreviewImage_->setText(QStringLiteral(
+        "Menunggu /obstacle_detection/visualization\\n"
+        "(fallback kompatibel: /camera/yolop/image_annotated)"));
+    }
+    perceptionPreviewStatus_->setText(QStringLiteral("%1 | DATA LIVE: %2/%3 | %4")
+      .arg(frameText).arg(live).arg(total)
+      .arg(recording_?QStringLiteral("RECORDING"):QStringLiteral("PREVIEW")));
+  }
+
   QStringList commonPaths() const {
     if (subsystem_ == QStringLiteral("navigation")) return {
       // GNSS / quality (kept because the master GUI also supports the broader navigation stack).
@@ -823,13 +1098,24 @@ class ExperimentWorkspacePage : public QWidget {
     };
     if (subsystem_ == QStringLiteral("perception")) return {
       "perception_performance.fps","perception_performance.mean_ms","perception_performance.p95_ms","perception_performance.capture_dropped",
-      "perception_performance.rviz_dropped","raw_detections.count","raw_detections.mean_confidence","obstacle_metrics.count",
-      "obstacle_metrics.nearest_forward_m","obstacle_metrics.nearest_left_m","obstacle_metrics.mean_confidence",
+      "perception_performance.rviz_dropped","raw_detections.count","raw_detections.mean_confidence","raw_detections.max_confidence",
+      "raw_detections.dynamic_count","raw_detections.static_count","raw_detections.floor_count","raw_detections.pallet_count","raw_detections.other_count",
+      "raw_detections.best_confidence","raw_detections.best_center_x_px","raw_detections.best_center_y_px",
+      "raw_detections.pallet_best_confidence","raw_detections.pallet_best_center_x_px","raw_detections.pallet_best_center_y_px",
+      "obstacle_metrics.count","obstacle_metrics.nearest_forward_m","obstacle_metrics.nearest_left_m","obstacle_metrics.mean_confidence",
       "object_points.count","path_relevant_points.count","planning_relevant_points.count","drivable_boundary_points.count",
       "drivable_space.valid_rows","drivable_space.valid","lane_state.valid","lane_state.left_clearance_m","lane_state.right_clearance_m",
       "lane_state.center_error_m","lane_state.heading_error_rad","lane_state.state","camera_healthy","camera_health_state.mean_luma",
-      "camera_health_state.stddev_luma","camera_health_state.mean_gradient","perception_emergency","near_field_state.confidence",
-      "near_field_state.near_field_drivable_fraction","trajectory_safety_state.speed_scale","trajectory_safety_state.decision",
+      "camera_health_state.stddev_luma","camera_health_state.mean_gradient","camera_health_state.width","camera_health_state.height",
+      "perception_emergency","near_field_state.confidence","near_field_state.near_field_drivable_fraction",
+      "alignment_state.state","alignment_state.state_text","alignment_state.pallet_detected","alignment_state.detection_stable",
+      "alignment_state.confidence","alignment_state.depth_quality","alignment_state.error_lateral_m","alignment_state.error_yaw_deg",
+      "alignment_state.pid_lateral_output","alignment_state.pid_yaw_output","alignment_state.desired_yaw_rate",
+      "alignment_state.estimated_steering_deg","alignment_state.linear_velocity_cmd","alignment_state.angular_velocity_cmd",
+      "alignment_state.steering_limit_active","alignment_state.safety_stop_active","alignment_state.data_valid",
+      "alignment_state.lateral_within_tolerance","alignment_state.yaw_within_tolerance","alignment_state.steering_centered",
+      "alignment_state.ready_for_insertion","trajectory_safety_state.speed_scale","trajectory_safety_state.decision",
+      "derived.visual_error_px","derived.visual_error_normalized","derived.alignment_lateral_error_cm",
       "derived.obstacle_error_x_m","derived.obstacle_error_y_m","derived.obstacle_error_2d_m","host.gpu_percent","host.ram_used_gb","host.temperature_c"
     };
     return {
@@ -885,6 +1171,20 @@ class ExperimentWorkspacePage : public QWidget {
       if(path.endsWith("x_m"))return sx-gx;
       if(path.endsWith("y_m"))return sy-gy;
       return std::hypot(sx-gx,sy-gy);
+    }
+    if(path==QStringLiteral("derived.visual_error_px") ||
+       path==QStringLiteral("derived.visual_error_normalized")){
+      double center=number(telemetry_->get(QStringLiteral("raw_detections.pallet_best_center_x_px")));
+      if(!std::isfinite(center))center=number(telemetry_->get(QStringLiteral("raw_detections.best_center_x_px")));
+      const double width=number(telemetry_->get(QStringLiteral("camera_health_state.width")));
+      if(!std::isfinite(center)||!std::isfinite(width)||width<=1.0)return {};
+      const double error=center-width*0.5;
+      if(path.endsWith(QStringLiteral("normalized")))return error/(width*0.5);
+      return error;
+    }
+    if(path==QStringLiteral("derived.alignment_lateral_error_cm")){
+      const double value=number(telemetry_->get(QStringLiteral("alignment_state.error_lateral_m")));
+      return std::isfinite(value)?QVariant(value*100.0):QVariant();
     }
     return navigationDerived(path);
   }
@@ -1023,6 +1323,7 @@ class ExperimentWorkspacePage : public QWidget {
       summaryUpdateClock_.restart();
     }
     if(plotMode_->currentIndex()==0)refreshGraphs();
+    if(subsystem_==QStringLiteral("perception"))refreshPerceptionPreview();
   }
   QVector<double> values(const QString &key) const {
     QVector<double> out;
@@ -1088,7 +1389,10 @@ class ExperimentWorkspacePage : public QWidget {
     };
   }
   bool isSpecial41MultiRowLeaf() const {
-    return currentId_==QStringLiteral("4.1.1") || currentId_==QStringLiteral("4.1.2") ||
+    // BAB IV TA terbaru: 4.1.1 komunikasi dan 4.1.3/4.1.4 raw data
+    // membutuhkan beberapa baris sampel; 4.1.2 LiDAR adalah ringkasan akurasi
+    // per jarak referensi sehingga satu Run menghasilkan satu baris statistik.
+    return currentId_==QStringLiteral("4.1.1") ||
            currentId_==QStringLiteral("4.1.3") || currentId_==QStringLiteral("4.1.4") ||
            currentId_==QStringLiteral("4.1.5");
   }
@@ -1375,6 +1679,17 @@ class ExperimentWorkspacePage : public QWidget {
         return sessions_.value(currentId_).rawRows.isEmpty()?QVariant():QVariant(QStringLiteral("Data tersedia"));
       };
       if(key==QStringLiteral("kondisi"))return condition;
+      if(currentId_==QStringLiteral("4.1.2")){
+        const QString prefix=preferredLidar41Prefix();
+        if(key.contains(QStringLiteral("jarak ref")))return std::isfinite(gtDistance)?QVariant(gtDistance):QVariant();
+        if(key==QStringLiteral("mean lidar (m)"))return aggregate(prefix+QStringLiteral(".range_center_m"),QStringLiteral("mean"));
+        if(key==QStringLiteral("error mean (m)"))return errorAggregate(prefix+QStringLiteral(".range_center_m"),gtDistance,QStringLiteral("mean"));
+        if(key==QStringLiteral("mae (m)"))return errorAggregate(prefix+QStringLiteral(".range_center_m"),gtDistance,QStringLiteral("mae"));
+        if(key==QStringLiteral("rmse (m)"))return errorAggregate(prefix+QStringLiteral(".range_center_m"),gtDistance,QStringLiteral("rmse"));
+        if(key==QStringLiteral("std dev (m)"))return aggregate(prefix+QStringLiteral(".range_center_m"),QStringLiteral("std"));
+        if(key.contains(QStringLiteral("valid ratio")))return aggregate(prefix+QStringLiteral(".valid_ratio_pct"),QStringLiteral("mean"));
+        if(key==QStringLiteral("status"))return availableStatus();
+      }
       if(currentId_==QStringLiteral("4.1.1b")){
         if(key==QStringLiteral("lidar rate"))return aggregate(sensorRatePath(preferredLidar41Prefix()),QStringLiteral("mean"));
         if(key==QStringLiteral("imu rate"))return aggregate(QStringLiteral("imu.rate_hz"),QStringLiteral("mean"));
@@ -1471,6 +1786,103 @@ class ExperimentWorkspacePage : public QWidget {
         if(key==QStringLiteral("status"))return availableStatus();
       }
       if(key==QStringLiteral("status"))return availableStatus();
+    }
+    // NAVIGATION BAB IV terbaru (TA_Ernanta_Revisi_Final.docx).
+    // Dispatch ini sengaja diletakkan sebelum aturan katalog lama agar nomor
+    // 4.2/4.3/4.4/4.5 tidak tertukar dengan struktur BAB IV sebelumnya.
+    if(subsystem_==QStringLiteral("navigation") && currentId_.startsWith(QStringLiteral("4.2"))){
+      if(key==QStringLiteral("map"))return parameterText(QStringLiteral("map_name")).isEmpty()?QVariant(variant):QVariant(parameterText(QStringLiteral("map_name")));
+      if(key.contains(QStringLiteral("resolution")))return aggregate(QStringLiteral("slam.resolution_m"),QStringLiteral("last"));
+      if(key==QStringLiteral("width (m)"))return aggregate(QStringLiteral("slam.width_m"),QStringLiteral("last"));
+      if(key==QStringLiteral("height (m)"))return aggregate(QStringLiteral("slam.height_m"),QStringLiteral("last"));
+      if(key.contains(QStringLiteral("unknown")))return aggregate(QStringLiteral("slam.unknown_pct"),QStringLiteral("mean"));
+      if(key.contains(QStringLiteral("occupied")))return aggregate(QStringLiteral("slam.occupied_pct"),QStringLiteral("mean"));
+      if(key.contains(QStringLiteral("map update")))return aggregate(QStringLiteral("slam.map_update_hz"),QStringLiteral("mean"));
+      if(key.contains(QStringLiteral("cpu mean")))return aggregate(QStringLiteral("host.cpu_percent"),QStringLiteral("mean"));
+      if(key.contains(QStringLiteral("ram mean")))return aggregate(QStringLiteral("host.ram_used_gb"),QStringLiteral("mean"));
+      if(key==QStringLiteral("error loop closure (m)"))return parameterValue(QStringLiteral("loop_error_m"));
+      if(key==QStringLiteral("error yaw closure (deg)"))return parameterValue(QStringLiteral("loop_yaw_error_deg"));
+      if(key==QStringLiteral("titik/dimensi referensi"))return parameterText(QStringLiteral("reference_name"));
+      if(key==QStringLiteral("fisik (m)"))return parameterValue(QStringLiteral("reference_dimension_m"));
+      if(key==QStringLiteral("map (m)"))return parameterValue(QStringLiteral("map_dimension_m"));
+      if(key==QStringLiteral("error (m)")){
+        const double physical=number(parameterValue(QStringLiteral("reference_dimension_m")));
+        const double mapped=number(parameterValue(QStringLiteral("map_dimension_m")));
+        return std::isfinite(physical)&&std::isfinite(mapped)?QVariant(mapped-physical):QVariant();
+      }
+      if(key==QStringLiteral("map terpilih"))return parameterText(QStringLiteral("selected_map"));
+      if(key==QStringLiteral("frame map"))return QStringLiteral("map");
+      if(key==QStringLiteral("status"))return sessions_.value(currentId_).rawRows.isEmpty()?QVariant():QVariant(QStringLiteral("Data tersedia"));
+    }
+    if(subsystem_==QStringLiteral("navigation") && currentId_.startsWith(QStringLiteral("4.3"))){
+      const double gx=number(groundTruth(QStringLiteral("gt_x")));
+      const double gy=number(groundTruth(QStringLiteral("gt_y")));
+      const double gyawDeg=number(groundTruth(QStringLiteral("gt_yaw_deg")));
+      const double gyaw=std::isfinite(gyawDeg)?gyawDeg*kPi/180.0:std::numeric_limits<double>::quiet_NaN();
+      const QVariant axV=aggregate(QStringLiteral("amcl.x"),QStringLiteral("last"));
+      const QVariant ayV=aggregate(QStringLiteral("amcl.y"),QStringLiteral("last"));
+      const QVariant ayawV=aggregate(QStringLiteral("amcl.yaw"),QStringLiteral("last"));
+      const double ax=number(axV),ay=number(ayV),ayaw=number(ayawV);
+      if(key==QStringLiteral("run"))return variant;
+      if(key==QStringLiteral("pose uji"))return condition.isEmpty()?QVariant(variant):QVariant(condition);
+      if(key==QStringLiteral("gt x (m)"))return std::isfinite(gx)?QVariant(gx):QVariant();
+      if(key==QStringLiteral("gt y (m)"))return std::isfinite(gy)?QVariant(gy):QVariant();
+      if(key==QStringLiteral("gt yaw (deg)"))return std::isfinite(gyawDeg)?QVariant(gyawDeg):QVariant();
+      if(key==QStringLiteral("amcl x (m)"))return axV;
+      if(key==QStringLiteral("amcl y (m)"))return ayV;
+      if(key==QStringLiteral("amcl yaw (deg)"))return std::isfinite(ayaw)?QVariant(ayaw*180.0/kPi):QVariant();
+      if(key.contains(QStringLiteral("error posisi"))){
+        return std::isfinite(ax)&&std::isfinite(ay)&&std::isfinite(gx)&&std::isfinite(gy)
+          ?QVariant(100.0*std::hypot(ax-gx,ay-gy)):QVariant();
+      }
+      if(key.contains(QStringLiteral("error yaw"))){
+        return std::isfinite(ayaw)&&std::isfinite(gyaw)
+          ?QVariant(normalizeAngle(ayaw-gyaw)*180.0/kPi):QVariant();
+      }
+      if(key==QStringLiteral("var x")||key==QStringLiteral("var x akhir"))return aggregate(QStringLiteral("amcl.var_x"),QStringLiteral("last"));
+      if(key==QStringLiteral("var y")||key==QStringLiteral("var y akhir"))return aggregate(QStringLiteral("amcl.var_y"),QStringLiteral("last"));
+      if(key==QStringLiteral("var yaw")||key==QStringLiteral("var yaw akhir"))return aggregate(QStringLiteral("amcl.var_yaw"),QStringLiteral("last"));
+      if(key==QStringLiteral("var x maks"))return aggregate(QStringLiteral("amcl.var_x"),QStringLiteral("max"));
+      if(key==QStringLiteral("var y maks"))return aggregate(QStringLiteral("amcl.var_y"),QStringLiteral("max"));
+      if(key==QStringLiteral("var yaw maks"))return aggregate(QStringLiteral("amcl.var_yaw"),QStringLiteral("max"));
+      if(key==QStringLiteral("min_particles"))return parameterValue(QStringLiteral("min_particles"));
+      if(key==QStringLiteral("max_particles"))return parameterValue(QStringLiteral("max_particles"));
+      if(key.contains(QStringLiteral("cpu mean")))return aggregate(QStringLiteral("host.cpu_percent"),QStringLiteral("mean"));
+      if(key==QStringLiteral("status"))return axV.isValid()&&ayV.isValid()?QVariant(QStringLiteral("Data tersedia")):QVariant();
+    }
+    if(subsystem_==QStringLiteral("navigation") && currentId_.startsWith(QStringLiteral("4.4"))){
+      if(key==QStringLiteral("run"))return variant;
+      if(key==QStringLiteral("skenario"))return condition.isEmpty()?QVariant(variant):QVariant(condition);
+      if(key==QStringLiteral("minimum_turning_radius (m)"))return parameterValue(QStringLiteral("minimum_turning_radius"));
+      if(key==QStringLiteral("planning time (ms)"))return aggregate(QStringLiteral("nav_path.planning_latency_ms"),QStringLiteral("last"));
+      if(key==QStringLiteral("path length (m)"))return aggregate(QStringLiteral("nav_path.length_m"),QStringLiteral("last"));
+      if(key==QStringLiteral("heading variation (rad)"))return aggregate(QStringLiteral("nav_path.heading_variation_rad"),QStringLiteral("last"));
+      if(key.contains(QStringLiteral("tracking error"))||key.contains(QStringLiteral("cte")))return aggregate(QStringLiteral("derived.cte_m"),QStringLiteral("rmse"));
+      if(key==QStringLiteral("radius fisik agv (m)"))return parameterValue(QStringLiteral("minimum_turning_radius"));
+      if(key==QStringLiteral("success")){
+        const QVariant count=aggregate(QStringLiteral("nav_path.count"),QStringLiteral("last"));
+        return count.isValid()?QVariant(count.toLongLong()>1):QVariant();
+      }
+      if(key==QStringLiteral("status")){
+        const QVariant count=aggregate(QStringLiteral("nav_path.count"),QStringLiteral("last"));
+        return count.isValid()?QVariant(count.toLongLong()>1?QStringLiteral("Berhasil"):QStringLiteral("Gagal")):QVariant();
+      }
+    }
+    if(subsystem_==QStringLiteral("navigation") && currentId_.startsWith(QStringLiteral("4.5"))){
+      if(key==QStringLiteral("run"))return variant;
+      if(key==QStringLiteral("skenario"))return condition.isEmpty()?QVariant(variant):QVariant(condition);
+      if(key==QStringLiteral("waktu (s)"))return aggregate(QStringLiteral("goal_state.duration_s"),QStringLiteral("last"));
+      if(key==QStringLiteral("path length (m)"))return aggregate(QStringLiteral("nav_path.length_m"),QStringLiteral("last"));
+      if(key==QStringLiteral("error posisi akhir (m)"))return aggregate(QStringLiteral("derived.endpoint_error_m"),QStringLiteral("last"));
+      if(key==QStringLiteral("error yaw akhir (deg)")){
+        const QVariant v=aggregate(QStringLiteral("derived.goal_yaw_error_rad"),QStringLiteral("last"));
+        return degrees(v);
+      }
+      if(key==QStringLiteral("cte rmse (m)"))return aggregate(QStringLiteral("derived.cte_m"),QStringLiteral("rmse"));
+      if(key==QStringLiteral("status")){
+        const QString state=lastText(QStringLiteral("goal_state.state")).toString();
+        return state.isEmpty()?QVariant():QVariant(state.contains(QStringLiteral("SUCCEEDED"),Qt::CaseInsensitive)?QStringLiteral("Sukses"):QStringLiteral("Gagal"));
+      }
     }
     if(key=="run")return variant;
     if(key.contains("jarak ref"))return std::isfinite(gtDistance)?QVariant(gtDistance):QVariant();

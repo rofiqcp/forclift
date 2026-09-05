@@ -1,8 +1,16 @@
 Panels:
   - Class: rviz_common/Displays
+    Help Height: 138
     Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+      Splitter Ratio: 0.5
+    Tree Height: 138
   - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
     Name: Views
+    Splitter Ratio: 0.5
 Visualization Manager:
   Class: ""
   Displays:
@@ -11,12 +19,19 @@ Visualization Manager:
       Class: rviz_default_plugins/Grid
       Color: 160; 160; 164
       Enabled: true
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
       Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
       Plane: XY
       Plane Cell Count: 20
       Reference Frame: <Fixed Frame>
-    # Keep the TF tree available for debugging, but do not draw link names/axes
-    # over the map by default.  The visible robot should come from STL meshes.
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: false
       Frame Timeout: 15
@@ -27,11 +42,10 @@ Visualization Manager:
       Show Arrows: false
       Show Axes: false
       Show Names: false
+      Tree:
+        {}
       Update Interval: 0
       Value: false
-
-    # RobotModel intentionally mirrors mapping.rviz: description comes from
-    # /robot_description and link transforms are resolved through visual_/.
     - Alpha: 1
       Class: rviz_default_plugins/RobotModel
       Collision Enabled: false
@@ -50,17 +64,133 @@ Visualization Manager:
         Expand Link Details: false
         Expand Tree: false
         Link Tree Style: Links in Alphabetic Order
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        body_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        cad_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        camera_color_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        camera_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        camera_depth_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        camera_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        camera_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        fork_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_steering_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_left_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_steering_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        front_right_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gearbox_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        lidar_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        mast_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        pan_servo_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        rear_left_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        rear_right_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        sensor_mount_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        steering_control_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        steering_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        top_cross_beam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
       Mass Properties:
         Inertia: false
         Mass: false
       Name: RobotModel
       TF Prefix: visual_
-      Update Interval: 0.10
+      Update Interval: 0.10000000149011612
       Value: true
       Visual Enabled: true
-    - Alpha: 0.80
+    - Alpha: 0.800000011920929
       Class: rviz_default_plugins/Map
       Color Scheme: map
+      Draw Behind: false
       Enabled: true
       Name: Map
       Topic:
@@ -70,6 +200,14 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map_updates
+      Use Timestamp: false
+      Value: true
     - Alpha: 0.25
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
@@ -83,6 +221,14 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /global_costmap/costmap
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /global_costmap/costmap_updates
+      Use Timestamp: false
+      Value: true
     - Alpha: 0.25
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
@@ -96,12 +242,34 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /local_costmap/costmap
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_costmap/costmap_updates
+      Use Timestamp: false
+      Value: true
     - Alpha: 1
+      Buffer Length: 1
       Class: rviz_default_plugins/Path
       Color: 0; 255; 0
       Enabled: true
-      Line Width: 0.08
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.07999999821186066
       Name: SmacHybridAStarPath
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
       Topic:
         Depth: 1
         Durability Policy: Transient Local
@@ -109,12 +277,27 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /smac_plan
+      Value: true
     - Alpha: 1
+      Buffer Length: 1
       Class: rviz_default_plugins/Path
       Color: 0; 200; 255
       Enabled: true
-      Line Width: 0.03
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Lines
+      Line Width: 0.029999999329447746
       Name: MPPITransformedGlobalPlan
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
       Topic:
         Depth: 1
         Durability Policy: Volatile
@@ -122,28 +305,42 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /transformed_global_plan
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: MPPIAckermannTrajectories
       Namespaces:
         {}
-      Queue Size: 10
       Topic:
         Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /trajectories
+      Value: true
     - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
       Class: rviz_default_plugins/LaserScan
       Color: 255; 0; 0
       Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
       Name: LiveLaserScan
-      Queue Size: 5
+      Position Transformer: XYZ
+      Selectable: true
       Size (Pixels): 2
-      Size (m): 0.02
+      Size (m): 0.019999999552965164
       Style: Points
       Topic:
         Depth: 5
@@ -153,36 +350,38 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /scan_nav
       Use Fixed Frame: true
-    - Angle Tolerance: 0.1
+      Use rainbow: true
+      Value: true
+    - Angle Tolerance: 0.10000000149011612
       Class: rviz_default_plugins/Odometry
       Covariance:
         Orientation:
-          Alpha: 0.15
+          Alpha: 0.15000000596046448
           Color: 255; 255; 127
           Color Style: Unique
           Frame: Local
           Offset: 1
-          Scale: 0.2
+          Scale: 0.20000000298023224
           Value: false
         Position:
-          Alpha: 0.15
+          Alpha: 0.15000000596046448
           Color: 204; 51; 204
-          Scale: 0.2
+          Scale: 0.20000000298023224
           Value: false
         Value: false
       Enabled: true
       Keep: 1
       Name: OdometryFiltered
-      Position Tolerance: 0.1
+      Position Tolerance: 0.10000000149011612
       Shape:
-        Alpha: 0.85
+        Alpha: 0.8500000238418579
         Axes Length: 0.25
-        Axes Radius: 0.02
+        Axes Radius: 0.019999999552965164
         Color: 190; 90; 220
-        Head Length: 0.12
-        Head Radius: 0.05
-        Shaft Length: 0.30
-        Shaft Radius: 0.018
+        Head Length: 0.11999999731779099
+        Head Radius: 0.05000000074505806
+        Shaft Length: 0.30000001192092896
+        Shaft Radius: 0.017999999225139618
         Value: Arrow
       Topic:
         Depth: 1
@@ -191,12 +390,18 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /odometry/filtered
+      Value: true
     - Alpha: 1
+      Axes Length: 1
+      Axes Radius: 0.10000000149011612
       Class: rviz_default_plugins/Pose
       Color: 0; 255; 0
       Enabled: true
-      Length: 0.5
+      Head Length: 0.30000001192092896
+      Head Radius: 0.10000000149011612
       Name: GoalPose
+      Shaft Length: 1
+      Shaft Radius: 0.05000000074505806
       Shape: Arrow
       Topic:
         Depth: 1
@@ -205,6 +410,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /goal_pose
+      Value: true
     - Alpha: 0.5
       Class: rviz_default_plugins/Polygon
       Color: 0; 255; 0
@@ -217,19 +423,21 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /local_costmap/published_footprint
-    # Autonomous shows ONLY the YOLO-processed/annotated camera stream.
-    # The raw Astra topic remains available to the detector but is intentionally
-    # not displayed in RViz.
-    - Alpha: 1
-      Class: rviz_default_plugins/Image
+      Value: true
+    - Class: rviz_default_plugins/Image
       Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
       Name: YOLO Processed Camera
+      Normalize Range: true
       Topic:
         Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /obstacle_detection/visualization
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -238,25 +446,59 @@ Visualization Manager:
   Name: root
   Tools:
     - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
     - Class: rviz_default_plugins/MoveCamera
     - Class: rviz_default_plugins/Select
     - Class: rviz_default_plugins/SetGoal
       Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
         Value: /goal_pose
     - Class: rviz_default_plugins/SetInitialPose
+      Covariance x: 0.25
+      Covariance y: 0.25
+      Covariance yaw: 0.06853891909122467
       Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
         Value: /initialpose_safe
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
   Views:
     Current:
+      Angle: 0
       Class: rviz_default_plugins/TopDownOrtho
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Invert Z Axis: false
       Name: Current View
-      Orthographic Scale: 20
+      Near Clip Distance: 0.009999999776482582
+      Scale: 10
       Target Frame: <Fixed Frame>
+      Value: TopDownOrtho (rviz_default_plugins)
+      X: 0
+      Y: 0
+    Saved: ~
 Window Geometry:
-  YOLO Processed Camera:
-    X: 1280
-    Y: 0
-    Width: 640
-    Height: 720
-  Height: 720
+  Displays:
+    collapsed: false
+  Height: 906
+  Hide Left Dock: false
+  Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd0000000100000000000002d8000002f8fc0200000003fb0000002a0059004f004c004f002000500072006f006300650073007300650064002000430061006d0065007200610100000069000000450000004500fffffffb000000100044006900730070006c00610079007301000000ba000001780000017800fffffffb0000000a00560069006500770073010000023e000001230000012300ffffff0000049c000002f800000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Views:
+    collapsed: false
   Width: 1920
+  X: 222
+  Y: 143
+  YOLO Processed Camera:
+    collapsed: false

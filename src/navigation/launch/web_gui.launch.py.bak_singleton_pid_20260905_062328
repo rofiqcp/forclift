@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Single operator entrypoint: full autonomous AGV stack + browser HMI.
+
+This launch intentionally does not create a second agv_web_gui node.  It wraps
+``autonomous.launch.py`` and lets that master launch own sensors, localization,
+Nav2, perception, mapping controls, map switching, and the one web server.
+"""
+
+import fcntl
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+
+_SINGLETON_LOCK = None
+
+def _acquire_singleton(_context):
+    global _SINGLETON_LOCK
+    lock_path = "/tmp/navigation_web_gui_full_stack.lock"
+    handle = open(lock_path, "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        handle.close()
+        raise RuntimeError(
+            "web_gui.launch.py full stack is already running; refusing duplicate sensors/filters/Nav2"
+        ) from exc
+    handle.seek(0)
+    handle.truncate()
+    handle.write(str(os.getpid()) + "\n")
+    handle.flush()
+    _SINGLETON_LOCK = handle
+    return []
+
+def generate_launch_description():
+    nav_share = get_package_share_directory("navigation")
+    autonomous = os.path.join(nav_share, "launch", "autonomous.launch.py")
+
+    args = [
+        DeclareLaunchArgument("bind_address", default_value="127.0.0.1"),
+        DeclareLaunchArgument("port", default_value="5005"),
+        DeclareLaunchArgument("read_only", default_value="false"),
+        DeclareLaunchArgument("use_sim_time", default_value="false"),
+        DeclareLaunchArgument("enable_nav2", default_value="true"),
+        # Web is the primary operator UI. RViz remains optional diagnostics and
+        # is OFF by default to avoid its previous crash/respawn load on Jetson.
+        DeclareLaunchArgument("enable_rviz", default_value="false"),
+        DeclareLaunchArgument("map", default_value="auto"),
+    ]
+
+    full_stack = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(autonomous),
+        launch_arguments={
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "enable_nav2": LaunchConfiguration("enable_nav2"),
+            "enable_rviz": LaunchConfiguration("enable_rviz"),
+            "map": LaunchConfiguration("map"),
+            "start_web_gui": "true",
+            "web_bind_address": LaunchConfiguration("bind_address"),
+            "web_port": LaunchConfiguration("port"),
+            "web_read_only": LaunchConfiguration("read_only"),
+        }.items(),
+    )
+    return LaunchDescription(args + [OpaqueFunction(function=_acquire_singleton), full_stack])

@@ -22,6 +22,10 @@ class MainWindow:public QMainWindow{
     });
     connect(ros_.get(),&RosBridge::image,this,[this](const QImage&i){
       if(cameraPage_)cameraPage_->setImage(i);
+      // Reuse the exact same annotated frame in the Perception BAB-IV preview.
+      // No extra ROS image subscriber is created.
+      if(auto *p=experimentPages_.value(QStringLiteral("perception"),nullptr))
+        p->setPerceptionImage(i);
     });
     connect(ros_.get(),&RosBridge::ready,this,[this](bool ok,const QString&m){
       rosPill_->setStatus(ok?"ok":"bad",ok?"ROS C++ OK":"ROS OFF");
@@ -654,14 +658,16 @@ class MainWindow:public QMainWindow{
     auto set=[&](const QString&fk,const QString&p,const QVariant&x){
       if(stores_.contains(fk)&&!same(stores_[fk]->get(p),x))stores_[fk]->set(p,x);
     };
-    set("esc","esc_ackermann.ros__parameters.wheelbase_m",wb);
-    set("esc","esc_ackermann.ros__parameters.track_width_m",track);
+    // ESC driver keeps its own ROS 2 parameter schema (esc_driver). Vehicle
+    // geometry synchronization is applied to runtime configs by the navigation
+    // authority; do not rewrite the source ESC YAML through a mismatched key.
     set("navigation_core","navigation_core.ros__parameters.wheelbase_m",wb);
     set("navigation_core","navigation_core.ros__parameters.track_width_m",track);
     set("navigation_core","navigation_core.ros__parameters.max_steering_angle_rad",opSteer);
     set("navigation_core","navigation_core.ros__parameters.minimum_turning_radius_m",turn);
-    set("perception","perception.ros__parameters.wheelbase_m",wb);
-    set("perception","perception.ros__parameters.lane_vehicle_width_m",width);
+    // Camera V4L2 parameters are independent from vehicle geometry.  Do not
+    // serialize wheelbase/width into camera_v4l2.yaml; doing so corrupts the
+    // ROS 2 parameter-file schema and prevents the Astra node from starting.
     set("nav2","planner_server.ros__parameters.GridBased.minimum_turning_radius",turn);
     set("nav2","controller_server.ros__parameters.FollowPath.AckermannConstraints.min_turning_r",turn);
     if(footprint.isValid()){

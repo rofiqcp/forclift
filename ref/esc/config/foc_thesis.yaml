@@ -1,0 +1,130 @@
+# FOC / steering research profile used by the AGV GUI for BAB IV tuning.
+# IMPORTANT: this file stores experiment/calibration values and the expected
+# telemetry contract. It does NOT by itself write parameters to the STM32.
+# Runtime apply requires firmware/serial support for the corresponding command.
+foc_thesis:
+  session:
+    revision_id: ""
+    firmware_version: ""
+    parameter_crc: ""
+    operator: ""
+    condition: ""
+    notes: ""
+
+  runtime:
+    pwm_frequency_hz: 16000
+    telemetry_rate_hz: 100
+    telemetry_topic: "/esc/foc/telemetry"
+    command_timeout_ms: 100
+    current_burst_enabled: false
+    current_burst_rate_hz: 16000
+
+  current_vbus_calibration:
+    sample_count: 2048
+    ia_offset_adc: 0.0
+    ib_offset_adc: 0.0
+    ia_noise_std_adc: 0.0
+    ib_noise_std_adc: 0.0
+    current_gain_a_per_count: 0.0
+    ia_polarity: 1
+    ib_polarity: 1
+    vbus_scale_v_per_count: 0.0
+
+  encoder_mechanical:
+    ppr: 1024
+    cpr: 4096
+    direction: "UNVERIFIED"
+    center_count: 0
+    gear_ratio: 1.0
+    hard_limit_left_deg: -30.0
+    hard_limit_right_deg: 30.0
+    soft_limit_left_deg: -28.0
+    soft_limit_right_deg: 28.0
+    invalid_transition_limit: 0
+
+  electrical_alignment:
+    phase_order: "UNVERIFIED"
+    pole_pairs: 4
+    theta_offset_rad: 0.0
+    id_ref_a: 0.0
+    alignment_iq_a: 0.5
+    sector_count: 6
+    sweep_runs_each_direction: 3
+
+  current_loop:
+    kp_i: 0.0
+    ki_i: 0.0
+    iq_step_a: 1.0
+    iq_limit_a: 8.0
+    c1_kp_i: 0.0
+    c1_ki_i: 0.0
+    c2_kp_i: 0.0
+    c2_ki_i: 0.0
+    c3_kp_i: 0.0
+    c3_ki_i: 0.0
+    selected_set: "UNSET"
+
+  position_loop:
+    kp_pos: 0.0
+    ki_pos: 0.0
+    kd_pos: 0.0
+    iq_max_a: 8.0
+    iq_slew_rate_a_per_s: 0.0
+    tuning_target_deg: 20.0
+    p1_kp_pos: 0.0
+    p1_ki_pos: 0.0
+    p2_kp_pos: 0.0
+    p2_ki_pos: 0.0
+    p3_kp_pos: 0.0
+    p3_ki_pos: 0.0
+    selected_set: "UNSET"
+
+  step_test:
+    targets_deg: [-30.0, -20.0, -10.0, 10.0, 20.0, 30.0]
+    runs_per_direction: 8
+    baseline_hold_s: 3.0
+    settling_hold_s: 5.0
+    measured_inner_wheel_deg: 0.0
+    measured_outer_wheel_deg: 0.0
+
+  tracking_test:
+    amplitude_deg: 20.0
+    frequencies_hz: [0.1, 0.5, 1.0]
+
+  load_test:
+    target_deg: 20.0
+    levels: ["tanpa_beban", "sedang", "maksimum"]
+    selected_level: "tanpa_beban"
+
+  safety_limits:
+    overcurrent_a: 0.0
+    undervoltage_v: 0.0
+    overvoltage_v: 0.0
+    overtemperature_c: 0.0
+    isr_budget_us: 62.5
+
+  acquisition:
+    csv_columns:
+      - timestamp_us
+      - theta_ref_deg
+      - theta_fb_deg
+      - position_error_deg
+      - encoder_count
+      - encoder_raw_state
+      - encoder_invalid_count
+      - ia_a
+      - ib_a
+      - id_a
+      - iq_a
+      - iq_ref_a
+      - vd_v
+      - vq_v
+      - duty_u
+      - duty_v
+      - duty_w
+      - vbus_v
+      - temperature_c
+      - fault_flags
+      - state
+      - inner_wheel_deg
+      - outer_wheel_deg

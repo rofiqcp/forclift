@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""SLAM-only mapping runtime reusing autonomous LiDAR/IMU/hector odometry.
+
+Creates an isolated mapping TF tree so the autonomous odom->base_footprint TF
+remains untouched while SLAM gets real translational motion from /lidar/odom.
+"""
+import os
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+
+
+def generate_launch_description():
+    nav_share = get_package_share_directory('navigation')
+    use_sim_time = LaunchConfiguration('use_sim_time')
+    slam_params_file = LaunchConfiguration('slam_params_file')
+    transform_publish_period = LaunchConfiguration('transform_publish_period')
+
+    bridge = Node(
+        package='navigation',
+        executable='mapping_lidar_odom_bridge.py',
+        name='mapping_lidar_odom_bridge',
+        output='screen',
+        parameters=[{'use_sim_time': ParameterValue(use_sim_time, value_type=bool)}],
+    )
+
+    slam = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(nav_share, 'launch', 'slam_async.launch.py')),
+        launch_arguments={
+            'slam_params_file': slam_params_file,
+            'autostart': 'true',
+            'use_lifecycle_manager': 'false',
+            'use_sim_time': use_sim_time,
+            'map_topic': '/mapping/map',
+            'transform_publish_period': transform_publish_period,
+            'odom_frame': 'mapping_odom',
+            'base_frame': 'mapping_base_footprint',
+            'scan_topic': '/mapping/scan_nav',
+        }.items(),
+    )
+
+    return LaunchDescription([
+        DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('transform_publish_period', default_value='0.05'),
+        DeclareLaunchArgument(
+            'slam_params_file',
+            default_value='/home/otomasi2/ros/config/runtime/navigation/slam_toolbox.yaml'),
+        bridge,
+        slam,
+    ])

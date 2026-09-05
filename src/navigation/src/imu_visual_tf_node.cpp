@@ -34,6 +34,7 @@ public:
     visual_child_frame_ = declare_parameter<std::string>(
       "visual_child_frame", "visual_/base_footprint");
     direct_imu_yaw_ = declare_parameter("direct_imu_yaw", false);
+    visual_model_yaw_offset_rad_ = declare_parameter("visual_model_yaw_offset_rad", 0.0);
 
     const auto qos = rclcpp::SensorDataQoS();
     lidar_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -238,7 +239,8 @@ private:
     }
 
     tf2::Quaternion visual_orientation;
-    visual_orientation.setRPY(0.0, 0.0, visual_yaw_);
+    visual_orientation.setRPY(
+      0.0, 0.0, normalize_angle(visual_yaw_ + visual_model_yaw_offset_rad_));
     visual_orientation.normalize();
 
     geometry_msgs::msg::TransformStamped transform;
@@ -294,6 +296,7 @@ private:
   double yaw_filter_alpha_{0.25};
   double visual_position_deadband_m_{0.0080};
   double visual_yaw_deadband_rad_{0.0040};
+  double visual_model_yaw_offset_rad_{0.0};
 
   std::string odom_topic_{"/lidar/odom"};
   std::string visual_parent_frame_{"odom"};

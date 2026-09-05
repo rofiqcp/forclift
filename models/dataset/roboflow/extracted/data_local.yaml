@@ -1,0 +1,7 @@
+path: /home/otomasi2/ros/models/dataset/roboflow/extracted
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 5
+names: ['floor marking', 'block', 'front', 'hole pallet', 'pallet']

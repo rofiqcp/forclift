@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-light checks for the master GUI + navigation BAB IV catalog."""
+"""Dependency-light checks for the master GUI + latest Navigation BAB IV catalog."""
 from __future__ import annotations
 
 import re
@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import yaml
-
 
 GUI = Path(__file__).resolve().parents[1]
 NAV = GUI.parent
@@ -29,89 +28,114 @@ def nested(data, dotted: str):
 def main() -> int:
     catalog = (GUI / 'agv_navigation_bab4_catalog.inc').read_text(encoding='utf-8')
     blocks = re.findall(r'navAdd\((.*?)\);', catalog, flags=re.S)
-    if len(blocks) != 68:
-        fail(f'expected 68 navigation acquisition leaves (14 for DOCX 4.1 + 54 existing), found {len(blocks)}')
 
-    required_41_tables = [
-        'Tabel 4.1 Pengujian komunikasi sensor saat AGV diam',
-        'Tabel 4.2 Stabilitas komunikasi pada kondisi aktuator berbeda',
-        'Tabel 4.3 Contoh raw LaserScan',
-        'Tabel 4.4 Akurasi LiDAR terhadap jarak referensi',
-        'Tabel 4.5 Pengaruh getaran dan aktuator terhadap LiDAR',
-        'Tabel 4.6 Kualitas LaserScan saat AGV bergerak',
-        'Tabel 4.7 Contoh raw data IMU',
-        'Tabel 4.8 Akurasi yaw IMU pada delapan orientasi',
-        'Tabel 4.9 Drift yaw saat IMU diam',
-        'Tabel 4.10 Pengaruh operasi aktuator terhadap yaw IMU',
-        'Tabel 4.11 Contoh raw data odometri',
-        'Tabel 4.12 Akurasi vx odometri',
-        'Tabel 4.13 Respons perubahan kecepatan odometri',
-        'Tabel 4.14 Sinkronisasi data sensor',
-        'Tabel 4.15 Validasi transformasi TF',
-        'Tabel 4.16 Rekapitulasi kelayakan input navigasi',
-    ]
-    for table in required_41_tables:
-        if table not in catalog:
-            fail(f'Navigation DOCX 4.1 table missing: {table}')
-    for heading in (
-        '4.1.1 Pengujian Komunikasi Sensor', '4.1.2 Pengujian Raw Data LiDAR',
-        '4.1.3 Pengujian Raw Data IMU', '4.1.4 Pengujian Raw Data Odometri',
+    # Latest TA structure has 32 Navigation leaves. 4.1.6 TF is intentionally
+    # a manual ExperimentSpec (default TF rows), so 31 are navAdd blocks.
+    if len(blocks) != 31:
+        fail(f'expected 31 navAdd leaves + manual 4.1.6 TF leaf, found {len(blocks)} navAdd blocks')
+    if 'spec.id = QStringLiteral("4.1.6")' not in catalog:
+        fail('manual TF leaf 4.1.6 is missing')
+
+    expected_headings = [
+        '4.1.1 Pengujian Komunikasi Sensor',
+        '4.1.2 Pengujian Data Raw LiDAR',
+        '4.1.3 Pengujian Data Raw IMU',
+        '4.1.4 Pengujian Data Raw Odometri',
         '4.1.5 Analisis Sinkronisasi LiDAR, IMU, dan Odometri',
-        '4.1.6 Validasi Transformasi TF', '4.1.7 Rekapitulasi Kelayakan Data Sensor'):
+        '4.1.6 Validasi Transformasi TF',
+        '4.2.1 Hasil Mapping 1',
+        '4.2.2 Hasil Mapping 2',
+        '4.2.3 Hasil Mapping 3',
+        '4.2.4 Loop Closure dan Drift',
+        '4.2.5 Analisis Kualitas Struktur Map',
+        '4.2.6 Perbandingan dan Pemilihan Map Terbaik',
+        '4.2.7 Validasi Map Terpilih',
+        '4.3.1 Akurasi Pose Statis AMCL',
+        '4.3.2 Repeatability Pose AMCL',
+        '4.3.3 Waktu Konvergensi Initial Pose',
+        '4.3.4 Tuning min_particles / max_particles',
+        '4.3.5 Pengujian Relocalization',
+        '4.3.6 Pengujian Localization Dinamis',
+        '4.3.7 Validasi AMCL Final',
+        '4.4.1 Validasi Input Global Costmap',
+        '4.4.2 Tuning minimum_turning_radius',
+        '4.4.3 Pengujian Beberapa Start-Goal',
+        '4.4.4 Repeatability Planner',
+        '4.4.5 Analisis Feasibility Jalur terhadap Kinematika AGV',
+        '4.4.6 Validasi Hybrid-A* Final',
+        '4.5.1 Lintasan Lurus',
+        '4.5.2 Belok 90°',
+        '4.5.3 Koridor',
+        '4.5.4 U-Turn',
+        '4.5.5 Skenario Kompleks',
+        '4.5.6 Rekapitulasi Performa Sistem',
+    ]
+    for heading in expected_headings:
         if heading not in catalog:
-            fail(f'Navigation DOCX 4.1 heading missing: {heading}')
+            fail(f'latest BAB IV heading missing: {heading}')
 
-    expected_counts = {
-        '4.1': 14, '4.2': 6, '4.3': 5, '4.4': 5, '4.5': 8, '4.6': 9,
-        '4.7': 5, '4.8': 9, '4.9': 5, '4.10': 1, '4.11': 1,
-    }
+    # Old Navigation chapters must no longer be exposed in the active catalog.
+    for obsolete in (
+        '4.6 Pengujian dan Tuning AMCL',
+        '4.7 Pengujian dan Tuning Global Costmap',
+        '4.8 Pengujian dan Tuning Smac Hybrid-A*',
+        '4.9 Validasi Navigasi End-to-End',
+        '4.10 Rekapitulasi Konfigurasi Kandidat Akhir',
+        '4.11 Rekap',
+    ):
+        if obsolete in catalog:
+            fail(f'obsolete Navigation BAB IV group still present: {obsolete}')
+
     ids = []
-    legacy_blocks = []
-    legacy_table_numbers = []
+    by_id = {}
     for block in blocks:
         strings = re.findall(r'"([^"]*)"', block)
-        if len(strings) < 6:
+        if len(strings) < 5:
             fail('malformed navAdd block')
-        group, leaf_id = strings[0], strings[2]
+        leaf_id = strings[2]
         ids.append(leaf_id)
-        if group != '4.1':
-            legacy_blocks.append(block)
-            match = re.search(r'Tabel 4\.(\d+)', block)
-            if not match:
-                fail(f'missing BAB IV table number in {leaf_id}')
-            legacy_table_numbers.append(int(match.group(1)))
-    for group, count in expected_counts.items():
-        actual = sum(item.startswith(group + '.') for item in ids)
-        if actual != count:
-            fail(f'{group}: expected {count} navAdd leaves, found {actual}')
-    if legacy_table_numbers != list(range(2, 56)):
-        fail(f'existing tables 4.2..4.55 changed unexpectedly: {legacy_table_numbers}')
+        by_id[leaf_id] = block
+    ids.append('4.1.6')
     if len(ids) != len(set(ids)):
-        fail('duplicate navigation leaf IDs')
+        fail('duplicate Navigation leaf IDs')
+
+    expected_counts = {'4.1': 6, '4.2': 7, '4.3': 7, '4.4': 6, '4.5': 6}
+    for group, expected in expected_counts.items():
+        actual = sum(item.startswith(group + '.') for item in ids)
+        if actual != expected:
+            fail(f'{group}: expected {expected} leaves, found {actual}')
 
     required_columns = {
-        2: ['Jarak ref (m)', 'RMSE (m)', 'σ (m)', 'Valid ratio (%)', 'Status'],
-        7: ['Run', 'RMSE 2 m (m)', 'Valid ratio (%)', 'Dropout (%)', 'Scan rate (Hz)', 'Status'],
-        8: ['Yaw ref', 'Yaw IMU', 'Error', '|Error|', 'Status'],
-        13: ['v_ref (m/s)', 'vx odom (m/s)', 'Error', 'Error relatif', 'Status'],
-        18: ['Parameter/kondisi', 'Map 1', 'Map 2', 'Map 3', 'Kontrol'],
-        20: ['Ref', 'Fisik (m)', 'Map 1 (m)', 'Map 2 (m)', 'Map 3 (m)', 'Terbaik'],
-        26: ['min/max', 'RMSE pos', 'RMSE yaw', 'Conv. time', 'CPU', 'Status'],
-        34: ['Skenario', 'RMSE pos', 'RMSE yaw', 'Conv. time', 'Lost count', 'Success'],
-        35: ['Resolution', 'Planning time', 'Min clearance', 'Path length', 'CPU', 'Status'],
-        40: ['Rmin', 'Planning time', 'Path length', 'Tracking RMSE', 'Steering saturation', 'Status'],
-        47: ['w_smooth', 'Path length', 'Curvature peak', 'Tracking RMSE', 'Clearance min', 'Status'],
-        48: ['Skenario', 'Planning time', 'Path length', 'Min clearance', 'CTE', 'Success'],
-        49: ['Run', 'Waktu (s)', 'Final e_pos', 'Final e_yaw', 'CTE', 'Status'],
-        53: ['Run', 'Waktu (s)', 'Final e_pos', 'Final e_yaw', 'CTE', 'Status'],
-        54: ['Lapisan', 'Parameter', 'Baseline/source', 'Kandidat akhir', 'Dasar'],
-        55: ['Metrik', 'Baseline', 'Setelah tuning', 'Perubahan'],
+        '4.1.2': ['Jarak Ref (m)', 'Mean LiDAR (m)', 'MAE (m)', 'RMSE (m)', 'Std Dev (m)', 'Valid Ratio (%)'],
+        '4.2.6': ['Metrik', 'Map 1', 'Map 2', 'Map 3', 'Terbaik', 'Keputusan'],
+        '4.3.1': ['GT X (m)', 'GT Y (m)', 'GT Yaw (deg)', 'AMCL X (m)', 'AMCL Y (m)', 'Error Posisi (cm)', 'Error Yaw (deg)'],
+        '4.3.4': ['min_particles', 'max_particles', 'Waktu Konvergensi (s)', 'Error Posisi (cm)', 'CPU Mean (%)'],
+        '4.4.2': ['minimum_turning_radius (m)', 'Planning Time (ms)', 'Path Length (m)', 'Feasible Fisik'],
+        '4.4.3': ['Skenario', 'Start', 'Goal', 'Path Length (m)', 'Planning Time (ms)', 'Reverse/Cusp'],
+        '4.5.6': ['Skenario', 'Percobaan', 'Berhasil', 'Success Rate (%)', 'Waktu Rata-rata (s)', 'Error Akhir Rata-rata (m)'],
     }
-    for number, columns in required_columns.items():
-        block = legacy_blocks[number - 2]
+    for leaf_id, columns in required_columns.items():
+        block = by_id.get(leaf_id)
+        if block is None:
+            fail(f'cannot inspect required leaf {leaf_id}')
         for column in columns:
             if f'"{column}"' not in block:
-                fail(f'Tabel 4.{number} missing column {column!r}')
+                fail(f'{leaf_id} missing column {column!r}')
+
+    # 4.5.1..4.5.5 intentionally share one endColumns definition.
+    for column in ('Run', 'Waktu (s)', 'Path Length (m)', 'Error Posisi Akhir (m)',
+                   'Error Yaw Akhir (deg)', 'CTE RMSE (m)', 'Status'):
+        if f'"{column}"' not in catalog:
+            fail(f'4.5 shared end-to-end columns missing {column!r}')
+
+    required_graphs = (
+        'Gambar 4.1 Error pengukuran LiDAR terhadap jarak referensi',
+        'Gambar 4.2 Perbandingan RMSE struktur tiga map',
+        'Gambar 4.3 Error posisi akhir pada lima skenario navigasi',
+    )
+    for graph in required_graphs:
+        if graph not in catalog:
+            fail(f'BAB IV report graph binding missing: {graph}')
 
     gui_core = (GUI / 'modules' / 'gui_core.cpp').read_text(encoding='utf-8')
     components = (GUI / 'modules' / 'experiment_components.cpp').read_text(encoding='utf-8')
@@ -126,26 +150,28 @@ def main() -> int:
         if marker not in components:
             fail(f'YAML editor contract marker {marker} is missing')
 
-    nav2_path = NAV / 'config' / 'nav2_ackermann.yaml'
-    lidar_path = NAV / 'config' / 'lidar.yaml'
-    nav2 = yaml.safe_load(nav2_path.read_text(encoding='utf-8'))
-    lidar = yaml.safe_load(lidar_path.read_text(encoding='utf-8'))
+    # Only validate YAML bindings still exposed by the latest BAB IV Navigation UI.
+    nav2 = yaml.safe_load((NAV / 'config' / 'nav2_ackermann.yaml').read_text(encoding='utf-8'))
     bindings = re.findall(
-        r'navField\("[^"]+",\s*"[^"]+",\s*"(?:float|int|bool)",\s*"(nav2|lidar)",\s*"([^"]+)"',
+        r'navField\("[^"]+",\s*"[^"]+",\s*"(?:float|int|bool|yaml_readonly)",\s*"nav2",\s*"([^"]+)"',
         catalog,
     )
-    allowed_insertions = {
-        'planner_server.ros__parameters.GridBased.downsampling_factor',
-        'planner_server.ros__parameters.GridBased.smoother.w_smooth',
-    }
-    for store, path in bindings:
-        value = nested(nav2 if store == 'nav2' else lidar, path)
-        if value is None and path not in allowed_insertions:
-            fail(f'GUI tuning binding does not resolve in source YAML: {store}:{path}')
-    if 'patchExisting' not in gui_core or 'Sisipkan scalar yang memang belum ada' not in gui_core:
-        fail('safe scalar insertion support is missing for allowed YAML additions')
+    for path in bindings:
+        if nested(nav2, path) is None:
+            fail(f'GUI Navigation binding does not resolve in source YAML: nav2:{path}')
 
-    print('PASS: master GUI shell, DOCX 4.1 Tables 4.1..4.16, existing Tables 4.2..4.55 unchanged, telemetry, and YAML bindings')
+    summary = (GUI / 'modules' / 'system_and_gnss_pages.cpp').read_text(encoding='utf-8')
+    for marker in (
+        'NAVIGATION BAB IV terbaru (TA_Ernanta_Revisi_Final.docx)',
+        'currentId_.startsWith(QStringLiteral("4.2"))',
+        'currentId_.startsWith(QStringLiteral("4.3"))',
+        'currentId_.startsWith(QStringLiteral("4.4"))',
+        'currentId_.startsWith(QStringLiteral("4.5"))',
+    ):
+        if marker not in summary:
+            fail(f'latest Navigation summary dispatch marker missing: {marker}')
+
+    print('PASS: latest TA BAB IV Navigation GUI = 32 leaves (4.1..4.5), report graphs, telemetry dispatch, and YAML bindings')
     return 0
 
 

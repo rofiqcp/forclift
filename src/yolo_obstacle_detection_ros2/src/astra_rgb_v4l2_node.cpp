@@ -101,8 +101,12 @@ AstraRGBNode::AstraRGBNode(const rclcpp::NodeOptions & options)
   pub_camera_info_ = create_publisher<sensor_msgs::msg::CameraInfo>(
     "/camera/color/camera_info", qos);
   auto status_qos = rclcpp::QoS(1).transient_local().reliable();
+  rclcpp::PublisherOptions status_options;
+  // Keep camera status transient-local for late GUI subscribers while allowing
+  // the high-bandwidth image path to use intra-process communication.
+  status_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
   pub_status_ = create_publisher<std_msgs::msg::String>(
-    "/camera/color/status", status_qos);
+    "/camera/color/status", status_qos, status_options);
 
   build_camera_info(config_.width, config_.height);
 

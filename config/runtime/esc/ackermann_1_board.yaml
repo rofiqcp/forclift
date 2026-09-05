@@ -1,0 +1,32 @@
+esc_driver:
+  ros__parameters:
+    vehicle_mode: ackermann_1_board
+    board0_port: /dev/esc
+    board1_port: ""
+    cmd_vel_topic: /cmd_vel/actuator
+    odom_topic: /esc/odom
+    odom_frame: odom
+    base_frame: base_footprint
+    wheel_radius: 0.145
+    publish_joint_states: false
+    # Sementara ESC belum terhubung: publish /esc/odom dan telemetry gerak = 0,
+    # tetapi feedback_valid/connected/ready tetap false.
+    offline_zero_output: true
+
+    wheelbase: 0.70
+    wheel_ticks_per_revolution: 90.0
+    speed_setpoint_rpm_per_mps: 0.0  # 0 = otomatis dari wheel_radius
+    max_motor_setpoint_rpm: 1000.0
+
+    steering_ticks_per_rad: 1000.0
+    steering_zero_ticks: 0.0
+    max_steering_rad: 0.34
+
+    min_speed_for_steering_mps: 0.08
+    steering_calibrated: false
+    require_steering_calibration_for_motion: true
+    # Ubah steering_calibrated=true hanya setelah zero/tick-per-rad diukur fisik.
+
+    cmd_timeout_s: 0.25
+    drive_sign: 1.0
+    steering_sign: 1.0

@@ -1,0 +1,267 @@
+cmake_minimum_required(VERSION 3.18)
+project(navigation)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic -O3)
+endif()
+
+find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(action_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Network)
+find_package(yaml-cpp REQUIRED)
+find_package(yolo_obstacle_detection_ros2 REQUIRED)
+
+add_library(navigation_serial STATIC src/serial_compat.cpp)
+target_include_directories(navigation_serial PUBLIC include)
+
+add_executable(imu_node
+  src/imu_node.cpp
+  src/b2_serial_port.cpp
+  src/b2_imu_parser.cpp
+  src/b2_imu_driver.cpp)
+target_include_directories(imu_node PRIVATE include)
+ament_target_dependencies(imu_node rclcpp sensor_msgs std_msgs geometry_msgs visualization_msgs)
+
+add_executable(lidar_node src/lidar_node.cpp)
+target_include_directories(lidar_node PRIVATE include)
+ament_target_dependencies(lidar_node rclcpp sensor_msgs std_msgs std_srvs)
+
+add_executable(hector_slam_node src/hector_slam_node.cpp)
+target_include_directories(hector_slam_node PRIVATE include)
+ament_target_dependencies(
+  hector_slam_node rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs tf2 tf2_ros)
+target_link_libraries(hector_slam_node Eigen3::Eigen)
+
+add_executable(imu_visual_tf_node src/imu_visual_tf_node.cpp)
+ament_target_dependencies(imu_visual_tf_node rclcpp sensor_msgs nav_msgs geometry_msgs tf2 tf2_ros)
+
+add_executable(map_monitor_node src/map_monitor_node.cpp)
+ament_target_dependencies(map_monitor_node rclcpp nav_msgs std_msgs)
+
+add_executable(allsystem_gate src/allsystem_gate.cpp)
+ament_target_dependencies(allsystem_gate rclcpp sensor_msgs std_msgs geometry_msgs nav_msgs)
+
+# V43 runtime conversion: navigation path generation and LiDAR self/noise filter
+# are native C++ ROS 2 nodes. No Python node sits in the GoalPose -> Smac -> MPPI path.
+add_executable(goal_pose_nav2_bridge src/goal_pose_nav2_bridge.cpp)
+ament_target_dependencies(
+  goal_pose_nav2_bridge rclcpp rclcpp_action geometry_msgs nav_msgs nav2_msgs std_msgs)
+
+add_executable(scan_self_filter src/scan_self_filter.cpp)
+ament_target_dependencies(scan_self_filter rclcpp sensor_msgs geometry_msgs tf2 tf2_ros)
+
+add_executable(navigation_runtime_validator src/runtime_validator.cpp)
+ament_target_dependencies(
+  navigation_runtime_validator rclcpp rclcpp_action sensor_msgs geometry_msgs nav_msgs nav2_msgs std_msgs)
+
+# V43 GUI conversion: both production Qt windows are native C++.
+add_executable(agv_gui_cpp src/agv_gui.cpp)
+ament_target_dependencies(
+  agv_gui_cpp rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs tf2 tf2_ros yolo_obstacle_detection_ros2)
+target_link_libraries(agv_gui_cpp Qt5::Core Qt5::Gui Qt5::Widgets)
+
+add_executable(mapping_gui_cpp src/mapping_gui.cpp)
+ament_target_dependencies(
+  mapping_gui_cpp rclcpp sensor_msgs nav_msgs geometry_msgs std_srvs tf2 tf2_ros)
+target_link_libraries(mapping_gui_cpp Qt5::Core Qt5::Gui Qt5::Widgets)
+
+# GUI master native C++/Qt. Target lama tetap dipertahankan agar tidak mengubah
+# runtime selain GUI yang dipanggil oleh gui.launch.py.
+add_executable(agv_gui gui/agv_gui.cpp gui/modules/experiment_components.hpp)
+set_target_properties(agv_gui PROPERTIES AUTOMOC ON)
+target_include_directories(agv_gui PRIVATE gui include)
+ament_target_dependencies(
+  agv_gui
+  rclcpp rcl_interfaces action_msgs sensor_msgs std_msgs builtin_interfaces
+  geometry_msgs nav_msgs std_srvs ament_index_cpp yolo_obstacle_detection_ros2)
+target_link_libraries(agv_gui Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Network yaml-cpp)
+target_compile_options(agv_gui PRIVATE -Wno-psabi)
+
+
+# Browser operator console. Backend native C++/rclcpp + Qt Network; frontend
+# HTML/CSS/JS sepenuhnya lokal/offline dan mengikuti telemetry GUI navigation aktif.
+add_executable(agv_web_gui web/web_server.cpp)
+set_target_properties(agv_web_gui PROPERTIES AUTOMOC ON)
+target_include_directories(agv_web_gui PRIVATE gui include)
+ament_target_dependencies(
+  agv_web_gui
+  rclcpp rcl_interfaces action_msgs sensor_msgs std_msgs geometry_msgs nav_msgs
+  std_srvs ament_index_cpp)
+target_link_libraries(agv_web_gui Qt5::Core Qt5::Gui Qt5::Network yaml-cpp)
+target_compile_options(agv_web_gui PRIVATE -Wno-psabi)
+
+install(
+  TARGETS
+    imu_node
+    lidar_node
+    hector_slam_node
+    imu_visual_tf_node
+    map_monitor_node
+    allsystem_gate
+    goal_pose_nav2_bridge
+    scan_self_filter
+    navigation_runtime_validator
+    agv_gui
+    agv_web_gui
+    agv_gui_cpp
+    mapping_gui_cpp
+  DESTINATION lib/${PROJECT_NAME})
+
+# Runtime Python helpers plus the feature-complete V58 PyQt operator GUI.
+# C++ navigation/control executables remain the real-time production path.
+install(PROGRAMS
+  scripts/agv_gui.py
+  scripts/agv_gui_launcher.sh
+  scripts/lidar_motor_off.py
+  scripts/mapping_web_controller.py
+  scripts/autonomous_sensor_preflight.sh
+  scripts/perception_preflight.sh
+  scripts/autonomous_pre_amcl_gate.py
+  scripts/autonomous_amcl_ready_gate.py
+  scripts/autonomous_map_tf_ready_gate.py
+  scripts/autonomous_runtime_check.py
+  scripts/perception_runtime_check.py
+  scripts/nav2_core_service_gate.py
+  scripts/serial_transport_ready_gate.py
+  scripts/autonomous_sensor_cmd_guard.py
+  scripts/autonomy_health_manager.py
+  scripts/manual_motion_health.py
+  scripts/localization_timing_monitor.py
+  scripts/sensor_replay_regression_observer.py
+  scripts/lidar_safety_health.py
+  scripts/gui_odom_alias.py
+  scripts/initialpose_stamp_relay.py
+  scripts/prepare_nav_map.py
+  tools/rviz_robot_model_ready_gate.py
+  tools/install_workspace_env.sh
+  tools/rebuild_navigation_clean.sh
+  tools/cp210x_recover.py
+  tools/install_sensor_recovery.sh
+  tools/verify_serial_v17.sh
+  tools/run_autonomous.sh
+  tools/run_map_logged.sh
+  tools/migrate_maps_v21.py
+  tools/repair_latest_map.py
+  tools/map_pair_sha256.py
+  tools/migrate_runtime_schema.py
+  tools/run_sensor_rosbag_regression.sh
+  tools/reset_cp210x.sh
+  tools/resolve_usb_roles.py
+  tools/check_allsystem.sh
+  tools/check_mapping.sh
+  tools/check_usb_hub_roles.sh
+  tools/save_map.sh
+  tools/sync_vehicle_geometry.py
+  tools/verify_v43_cpp_path_gui.sh
+  tools/verify_v44_humble_build_fix.sh
+  tools/verify_v45_warning_free_build.sh
+  tools/validate_v43_navigation_live.sh
+  tools/APPLY_V43_ON_JETSON.sh
+  tools/APPLY_V44_ON_JETSON.sh
+  tools/APPLY_V45_ON_JETSON.sh
+  tools/verify_v46_gui_sensor_startup.sh
+  tools/validate_v46_sensor_live.sh
+  tools/APPLY_V46_ON_JETSON.sh
+  tools/verify_v47_commands.sh
+  tools/run_v47.sh
+  tools/APPLY_V47_ON_JETSON.sh
+  tools/run_v48.sh
+  tools/run_gui
+  tools/run_mapping
+  tools/run_autonomous
+  tools/APPLY_V48_ON_JETSON.sh
+  tools/APPLY_V49_ON_JETSON.sh
+  tools/APPLY_V52_ON_JETSON.sh
+  tools/verify_v52_sensor_live.sh
+  tools/run_v49.sh
+  tools/run_v55.sh
+  tools/run_v56.sh
+  tools/verify_v56_master_gui_robot_model.sh
+  tools/APPLY_V56_ON_JETSON.sh
+  tools/run_v57.sh
+  tools/verify_v57_gui_goal_amcl_camera.sh
+  tools/APPLY_V57_ON_JETSON.sh
+  tools/run_v58.sh
+  tools/verify_v58_complete_runtime.sh
+  tools/APPLY_V58_ON_JETSON.sh
+  tools/run_v60.sh
+  tools/verify_v60_rviz_smac_runtime.sh
+  DESTINATION lib/${PROJECT_NAME})
+
+# Launch-time configuration helpers remain Python because ROS 2 Humble launch files
+# consume them before any node starts. They are not GUI or navigation-control nodes.
+ament_python_install_package(navigation_runtime PACKAGE_DIR python/navigation_runtime)
+
+# V58 keeps the full master PyQt engineering interface, decouples AMCL/Nav2
+# from perception startup, adds per-map static inflation previews and repairs
+# Smac/MPPI/perception GUI telemetry. The native C++ dashboard remains an
+# offline fallback binary. The launcher adds lib/navigation to PYTHONPATH.
+install(DIRECTORY python/navigation_gui DESTINATION lib/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE)
+
+# Institutional asset is also installed in share for non-Python consumers.
+install(FILES assets/logo_undip.png DESTINATION share/${PROJECT_NAME}/assets OPTIONAL)
+install(FILES
+  V31_ACTIVE.txt V39_ACTIVE.txt V39_VALIDATION.txt
+  V40_SENSOR_USB_RECOVERY.txt V41_SENSOR_ENUMERATION_FIX.txt V42_SENSOR_BOOTSTRAP_RECOVERY.txt
+  V43_CPP_PATH_GUI_ACTIVE.txt V43_VALIDATION.txt V44_HUMBLE_GCC11_BUILD_FIX.txt V45_WARNING_FREE_BUILD_FIX.txt
+  V46_GUI_SENSOR_STARTUP_FIX.txt V47_COMMAND_RUNTIME_FIX.txt V48_THREE_COMMAND_RUNTIME_FIX.txt V49_LIDAR_RUNTIME_SCHEMA_FIX.txt V51_TMINI_PLUS_SH_16BIT_SCAN_FIX.txt V52_LIDAR_IMU_EIO_AUTOPARSER_FIX.txt
+  V56_ACTIVE.txt V58_ACTIVE.txt
+  DESTINATION share/${PROJECT_NAME})
+
+install(DIRECTORY launch config rviz urdf meshes maps behavior_trees DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY gui/assets DESTINATION share/${PROJECT_NAME}/gui)
+install(DIRECTORY web/static DESTINATION share/${PROJECT_NAME}/web)
+install(DIRECTORY docs tools DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE)
+
+if(BUILD_TESTING)
+  # ament_cmake_pytest emits a CMake WARNING when the Python pytest module is
+  # absent. Detect the module first so a normal production build stays clean.
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  set(NAVIGATION_PYTEST_AVAILABLE FALSE)
+  if(Python3_Interpreter_FOUND)
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" -c "import pytest"
+      RESULT_VARIABLE NAVIGATION_PYTEST_IMPORT_RC
+      OUTPUT_QUIET ERROR_QUIET)
+    if(NAVIGATION_PYTEST_IMPORT_RC EQUAL 0)
+      set(NAVIGATION_PYTEST_AVAILABLE TRUE)
+    endif()
+  endif()
+
+  if(NAVIGATION_PYTEST_AVAILABLE)
+    find_package(ament_cmake_pytest REQUIRED)
+    ament_add_pytest_test(test_calibration_math test/test_calibration_math.py
+      APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/python TIMEOUT 60)
+    ament_add_pytest_test(test_path_metrics test/test_path_metrics.py
+      APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/python TIMEOUT 60)
+    ament_add_pytest_test(test_runtime_schema test/test_runtime_schema.py
+      APPEND_ENV PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/python TIMEOUT 60)
+  else()
+    message(STATUS "navigation: pytest not installed; optional Python unit tests are skipped")
+  endif()
+endif()
+
+ament_package()

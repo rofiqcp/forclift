@@ -487,12 +487,30 @@ private:
 
   void killPattern(const char * pattern)
   {
+    const QString pat = QString::fromLatin1(pattern);
     QProcess::execute(QStringLiteral("pkill"), QStringList{}
       << QStringLiteral("-TERM") << QStringLiteral("-f")
-      << QStringLiteral("--") << QString::fromLatin1(pattern));
+      << QStringLiteral("--") << pat);
+
+    // LiDAR shutdown sends A5 65 and powers the motor down before closing the
+    // CP210x descriptor. Give stale owners time to complete that sequence;
+    // immediate TERM->KILL can leave a visible ttyUSB node in EIO state.
+    for (int i = 0; i < 30; ++i) {
+      QProcess probe;
+      probe.start(QStringLiteral("pgrep"), QStringList{}
+        << QStringLiteral("-f") << QStringLiteral("--") << pat);
+      if (!probe.waitForFinished(500) || probe.exitStatus() != QProcess::NormalExit) {
+        break;
+      }
+      if (probe.exitCode() != 0) {
+        return;
+      }
+      QThread::msleep(100);
+    }
+
     QProcess::execute(QStringLiteral("pkill"), QStringList{}
       << QStringLiteral("-KILL") << QStringLiteral("-f")
-      << QStringLiteral("--") << QString::fromLatin1(pattern));
+      << QStringLiteral("--") << pat);
   }
 
   void waitProcessGroupGone(pid_t leader)

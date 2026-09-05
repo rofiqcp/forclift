@@ -1,0 +1,32 @@
+# Runtime calibration for YOLOPv2 bounding boxes -> obstacle coordinates.
+# Coordinate convention in base_link:
+#   x = forward (m), y = left (m), z = up (m)
+#
+# Safe default is homography. Run static tests and fit area_models before
+# changing runtime.mode to hybrid or bbox_area.
+runtime:
+  mode: homography              # homography | hybrid | bbox_area
+  hybrid_area_weight: 0.25      # used only in hybrid mode
+  image_width_px: 1280
+  image_height_px: 720
+  focal_x_px: 700.0             # used by bbox_area lateral estimate
+  forward_offset_m: 0.0         # final base_link correction
+  lateral_offset_m: 0.0
+  maximum_forward_m: 4.0        # aligned with local costmap range
+  maximum_abs_left_m: 2.5
+  minimum_forward_m: 0.20
+  ema_alpha: 0.45
+  association_distance_m: 0.90
+  max_track_age_frames: 3
+  marker_lifetime_sec: 0.35
+
+# distance = a / sqrt(bbox_area_px) + b
+# Keep enabled=false until coefficients are fitted from real static-test data.
+area_models:
+  default: {enabled: false, a: 0.0, b: 0.0}
+  person: {enabled: false, a: 0.0, b: 0.0}
+  bicycle: {enabled: false, a: 0.0, b: 0.0}
+  car: {enabled: false, a: 0.0, b: 0.0}
+  motorcycle: {enabled: false, a: 0.0, b: 0.0}
+  bus: {enabled: false, a: 0.0, b: 0.0}
+  truck: {enabled: false, a: 0.0, b: 0.0}

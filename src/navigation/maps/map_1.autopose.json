@@ -2,10 +2,11 @@
   "schema_version": 1,
   "map_yaml": "/home/otomasi2/ros/src/navigation/maps/map_1.yaml",
   "map_image": "/home/otomasi2/ros/src/navigation/maps/map_1.pgm",
-  "map_sha256": "97fb5a517316b24def908c6db10dc5a5e07bd33ede53d97f1fb1b71351decdff",
+  "map_sha256": "6621546755afeea3c27af3007db3987b41bf162c3219912ab7d70820d515d242",
   "frame_id": "map",
   "child_frame_id": "base_footprint",
-  "x": -0.000005,
-  "y": -0.031880,
-  "yaw": -0.005524
+  "x": -0.16178,
+  "y": -0.068028,
+  "yaw": -0.023579,
+  "source": "amcl_converged_nav_map_switch"
 }

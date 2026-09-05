@@ -1,0 +1,54 @@
+# PART-1 mapping EKF. This file is the actual mapping local-odometry profile.
+# TF ownership:
+#   slam_toolbox -> map -> odom
+#   EKF          -> odom -> base_footprint
+#   Hector       -> /lidar/odom topic only (NO TF, NO /map)
+ekf_filter_node:
+  ros__parameters:
+    # V38: 20 Hz remains comfortably above the measured ~6 Hz LiDAR odometry
+    # while avoiding robot_localization deadline warnings during Ceres/RViz load.
+    frequency: 20.0
+    sensor_timeout: 0.35
+    two_d_mode: true
+    publish_tf: true
+    publish_acceleration: false
+    print_diagnostics: false
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom
+
+    # Wheel encoder / ESC feedback is primary for forward translation.
+    odom0: /esc/odom
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  true,  false,
+                   false, false, false,
+                   false, false, false]
+    odom0_queue_size: 50
+    odom0_nodelay: true
+    odom0_differential: false
+    odom0_relative: false
+    odom0_twist_rejection_threshold: 2.0
+
+    # PART-5 Stage-1: /lidar/odom remains available as a diagnostic and
+    # offline/fallback comparison topic, but is intentionally NOT fused here.
+    # This avoids correlating the same LiDAR measurement through both the
+    # local EKF and AMCL/SLAM global localization path.
+
+    # IMU gyro-Z is the high-rate turn-rate source.
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_queue_size: 100
+    imu0_nodelay: true
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: false
+    imu0_twist_rejection_threshold: 1.5
+
+    use_control: false

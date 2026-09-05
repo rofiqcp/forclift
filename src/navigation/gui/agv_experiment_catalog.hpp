@@ -1306,9 +1306,11 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
   },
   {
     {
-      "Deteksi", "raw_detections.count"
+      "Pallet count", "raw_detections.pallet_count"
     }, {
-      "Confidence", "raw_detections.mean_confidence"
+      "Pallet confidence", "raw_detections.pallet_best_confidence"
+    }, {
+      "Pallet center X", "raw_detections.pallet_best_center_x_px"
     }, {
       "FPS", "perception_performance.fps"
     }
@@ -1326,9 +1328,11 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
   },
   {
     {
-      "Deteksi", "raw_detections.count"
+      "Pallet confidence", "raw_detections.pallet_best_confidence"
     }, {
-      "Confidence", "raw_detections.mean_confidence"
+      "Yaw visual", "alignment_state.error_yaw_deg"
+    }, {
+      "Detection stable", "alignment_state.detection_stable"
     }, {
       "FPS", "perception_performance.fps"
     }
@@ -1369,9 +1373,13 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
   },
   {
     {
-      "Deteksi", "raw_detections.count"
+      "Visual error (px)", "derived.visual_error_px"
     }, {
-      "Confidence", "raw_detections.mean_confidence"
+      "Visual error normalized", "derived.visual_error_normalized"
+    }, {
+      "Lateral alignment (cm)", "derived.alignment_lateral_error_cm"
+    }, {
+      "Pallet confidence", "raw_detections.pallet_best_confidence"
     }, {
       "FPS", "perception_performance.fps"
     }
@@ -1388,9 +1396,13 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
   },
   {
     {
-      "Deteksi", "raw_detections.count"
+      "Yaw visual (deg)", "alignment_state.error_yaw_deg"
     }, {
-      "Confidence", "raw_detections.mean_confidence"
+      "Lateral alignment (cm)", "derived.alignment_lateral_error_cm"
+    }, {
+      "Alignment confidence", "alignment_state.confidence"
+    }, {
+      "Data valid", "alignment_state.data_valid"
     }, {
       "FPS", "perception_performance.fps"
     }
@@ -1407,11 +1419,15 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
   },
   {
     {
-      "Deteksi", "raw_detections.count"
+      "Visual error (px)", "derived.visual_error_px"
     }, {
-      "Confidence", "raw_detections.mean_confidence"
+      "Lateral alignment (cm)", "derived.alignment_lateral_error_cm"
     }, {
-      "FPS", "perception_performance.fps"
+      "Yaw visual (deg)", "alignment_state.error_yaw_deg"
+    }, {
+      "Lateral in tolerance", "alignment_state.lateral_within_tolerance"
+    }, {
+      "Yaw in tolerance", "alignment_state.yaw_within_tolerance"
     }
   });
 
@@ -1422,35 +1438,43 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
   },
   {
     {
-      "Offset Awal (cm)", "Error Visual Awal", "Kp,y", "Error Visual Akhir", "Settling Time (s)", "Overshoot", "Status"
+      "Offset Awal (cm)", "Error Visual Awal", "Kp lateral", "Error Visual Akhir", "Settling Time (s)", "Overshoot", "Status"
     }
   },
   {
     {
+      "Lateral error (cm)", "derived.alignment_lateral_error_cm"
+    }, {
+      "PID lateral", "alignment_state.pid_lateral_output"
+    }, {
+      "Steering estimate", "alignment_state.estimated_steering_deg"
+    }, {
+      "Velocity cmd", "alignment_state.linear_velocity_cmd"
+    }, {
       "FPS", "perception_performance.fps"
-    }, {
-      "Mean process", "perception_performance.mean_ms"
-    }, {
-      "Capture drop", "perception_performance.capture_dropped"
     }
   });
   add("perception", QStringLiteral("4.5"), QStringLiteral("4.5 Pengujian Kontrol Proporsional Docking"), "4.5.2",
-  QStringLiteral("4.5.2 Pengujian Kontrol terhadap Error Lateral Awal"),
+  QStringLiteral("4.5.2 Pengujian Kontrol terhadap Error Yaw Awal"),
   {
     "Respons error visual terhadap waktu selama docking"
   },
   {
     {
-      "Offset Awal (cm)", "Error Visual Awal", "Kp,y", "Error Visual Akhir", "Settling Time (s)", "Overshoot", "Status"
+      "Yaw Awal (deg)", "Error Yaw Awal", "Kp yaw", "Error Yaw Akhir", "Settling Time (s)", "Overshoot", "Status"
     }
   },
   {
     {
+      "Yaw error (deg)", "alignment_state.error_yaw_deg"
+    }, {
+      "PID yaw", "alignment_state.pid_yaw_output"
+    }, {
+      "Desired yaw rate", "alignment_state.desired_yaw_rate"
+    }, {
+      "Steering estimate", "alignment_state.estimated_steering_deg"
+    }, {
       "FPS", "perception_performance.fps"
-    }, {
-      "Mean process", "perception_performance.mean_ms"
-    }, {
-      "Capture drop", "perception_performance.capture_dropped"
     }
   });
   add("perception", QStringLiteral("4.5"), QStringLiteral("4.5 Pengujian Kontrol Proporsional Docking"), "4.5.3",
@@ -1460,16 +1484,20 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
   },
   {
     {
-      "No.", "Lateral Awal", "Yaw Awal", "Final Lateral Error", "Final Yaw Error", "Settling Time", "Success"
+      "No.", "Kp lateral", "Kp yaw", "Lateral Awal", "Yaw Awal", "Final Lateral Error", "Final Yaw Error", "Settling Time", "Success"
     }
   },
   {
     {
-      "FPS", "perception_performance.fps"
+      "Lateral error (cm)", "derived.alignment_lateral_error_cm"
     }, {
-      "Mean process", "perception_performance.mean_ms"
+      "Yaw error (deg)", "alignment_state.error_yaw_deg"
     }, {
-      "Capture drop", "perception_performance.capture_dropped"
+      "Steering estimate", "alignment_state.estimated_steering_deg"
+    }, {
+      "Velocity cmd", "alignment_state.linear_velocity_cmd"
+    }, {
+      "Ready insertion", "alignment_state.ready_for_insertion"
     }
   });
   /* ------------------------- ESC / BLDC FOC ------------------------- */

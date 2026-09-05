@@ -77,7 +77,10 @@
     <origin xyz="0 0 ${(beam_cad_y_max - beam_cad_y_min)/2 + sensor_mount_thickness/2}"
             rpy="0 0 0"/>
   </joint>
-  <joint name="lidar_joint" type="fixed"><parent link="sensor_mount_link"/><child link="lidar_link"/><origin xyz="0 0 0.027" rpy="0 0 0"/></joint>
+  <!-- Physical LiDAR forward indicator is aligned with vehicle forward.
+       The sensor mount inherits CAD +Y forward, so +90 deg local yaw makes
+       lidar_link +X coincide with REP-103 base_link +X. -->
+  <joint name="lidar_joint" type="fixed"><parent link="sensor_mount_link"/><child link="lidar_link"/><origin xyz="0 0 0.027" rpy="0 0 1.570796326795"/></joint>
 
   <!-- No pan-servo controller/state source is present in this runtime. Keep the Astra
        optical chain deterministic at the calibrated center angle instead of leaving TF unresolved. -->
@@ -94,5 +97,8 @@
 
   <!-- IMU is fixed inside the gearbox/steering gearbox assembly, not on the LiDAR stack. -->
   <joint name="gearbox_joint" type="fixed"><parent link="steering_link"/><child link="gearbox_link"/><origin xyz="0 0.50 -0.42" rpy="0 0 0"/></joint>
-  <joint name="imu_joint" type="fixed"><parent link="gearbox_link"/><child link="imu_link"/><origin xyz="0 0 0" rpy="0 0 0"/></joint>
+  <!-- Physical IMU forward indicator is aligned with vehicle forward.
+       This +90 deg local yaw maps the sensor's +X onto CAD +Y, which the
+       REP-103 adapter maps onto base_link +X. -->
+  <joint name="imu_joint" type="fixed"><parent link="gearbox_link"/><child link="imu_link"/><origin xyz="0 0 0" rpy="0 0 1.570796326795"/></joint>
 </robot>

@@ -298,6 +298,12 @@ def sync_derived_configs(
                 p = data["esc_driver"]["ros__parameters"]
                 if not isinstance(p, dict):
                     raise KeyError("esc_driver.ros__parameters")
+                # A ROS 2 parameter file may not contain a bare root-level
+                # ros__parameters mapping alongside the named node.  Older GUI
+                # geometry synchronization could append exactly that fragment,
+                # which made rcl_yaml_param_parser reject the whole ESC profile.
+                if "ros__parameters" in data:
+                    raise KeyError("stray root ros__parameters")
             except (KeyError, TypeError):
                 default_path = esc_share / "config" / filename
                 default_data = _load_yaml(default_path)

@@ -107,7 +107,20 @@ def _merge_package_defaults(share: Path, package: str, files: Mapping[str, Any],
             continue
         default = _load(src)
         active = _load(dst)
+
+        # ROS 2 parameter files that use named node sections must never carry a
+        # stray root-level ros__parameters mapping. Older GUI geometry sync
+        # revisions could append such a fragment to otherwise valid files
+        # (notably collision_monitor.yaml and autonomy_health.yaml). rcl then
+        # aborts the node before lifecycle startup. Remove only this impossible
+        # root fragment when the packaged schema itself does not define it.
+        removed_invalid_root = False
+        if "ros__parameters" in active and "ros__parameters" not in default:
+            active.pop("ros__parameters", None)
+            removed_invalid_root = True
+
         changed, added = _merge_missing(active, default)
+        changed = changed or removed_invalid_root
         if not changed:
             continue
         backup = root / ".runtime_schema_backups" / f"{contract}_{backup_stamp}" / name

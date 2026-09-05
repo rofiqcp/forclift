@@ -1,0 +1,4 @@
+localization_timing_monitor:
+  ros__parameters:
+    publish_rate_hz: 1.0
+    window_samples: 100

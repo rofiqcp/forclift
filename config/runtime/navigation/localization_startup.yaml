@@ -1,0 +1,17 @@
+autonomous_amcl_ready_gate:
+  ros__parameters:
+    initial_pose_mode: GLOBAL_LOCALIZATION
+    known_pose_x: 0.0
+    known_pose_y: 0.0
+    known_pose_yaw: 0.0
+    known_pose_map_sha256: ''
+    require_map_hash_for_known_pose: true
+    convergence_min_samples: 2
+    max_cov_x: 0.5
+    max_cov_y: 0.5
+    max_cov_yaw: 0.4
+    stability_translation_m: 0.15
+    stability_yaw_rad: 0.2
+    bootstrap_delay_sec: 0.8
+    nomotion_update_period_sec: 1.0
+    diagnostic_timeout_sec: 600.0

@@ -1,0 +1,70 @@
+# ONE source of truth for actuator limits.
+# The wildcard parameters are consumed by BOTH motor_teleop and esc_ackermann.
+/**:
+  ros__parameters:
+    # ROS command limit: 1.0 m/s maps to 300 mechanical RPM at the STM command.
+    speed_max: 1.00
+
+    # Manual teleop request scale. +/-80 deg/s is only a normalized Twist encoding;
+    # esc_ackermann converts that fraction to the calibrated physical wheel limit.
+    yaw_max_deg_s: 80.0
+
+    # Legacy STM protocol span. This is NOT assumed to be a physical wheel angle.
+    # esc_ackermann owns protocol<->physical calibration before sending this value.
+    serial_left_max_deg: 80.0
+    serial_right_max_rpm: 300.0
+
+motor_teleop:
+  ros__parameters:
+    # IMPORTANT: teleop no longer publishes to /cmd_vel, so it cannot collide with Nav2.
+    output_topic: /cmd_vel/teleop
+    publish_rate_hz: 50.0
+
+    speed_initial: 0.20
+    speed_step: 0.10
+    speed_min: 0.10
+
+    # Start with the full normalized manual steering request range. R2 can reduce
+    # the request fraction and R1 can restore it. The ESC node still clamps the
+    # resulting wheel command to the physical commissioning/calibrated limit.
+    yaw_initial_deg_s: 80.0
+    yaw_step_deg_s: 5.0
+    yaw_min_deg_s: 5.0
+
+    keyboard_device: ""
+    keyboard_rescan_sec: 2.0
+    ignore_controller_keyboard_interfaces: true
+    suppress_terminal_echo: true
+
+    gamepad_device: ""
+    gamepad_rescan_sec: 0.10
+    gamepad_forward_abs_code: 1
+    gamepad_yaw_abs_code: -1
+    gamepad_invert_forward: true
+    gamepad_invert_yaw: false
+    joy_deadzone: 0.12
+    # Throttle shaping: no jump outside deadzone, dan >=90% stick adalah full command.
+    joy_forward_deadzone: 0.12
+    joy_forward_full_scale_threshold: 0.90
+
+    # Manual teleop smoothing. Speed starts at 0.20 m/s and MUST be raised with L1.
+    # Full-stick reaches the currently selected speed level; L1 can raise it to
+    # speed_max=1.0 m/s (=300 RPM).
+    teleop_velocity_smoothing_enabled: true
+    teleop_accel_limit_mps2: 1.50
+    teleop_decel_limit_mps2: 2.50
+    teleop_zero_snap_mps: 0.015
+
+    # Steering center deadzone is deliberately wider than throttle. It removes
+    # left/right return hysteresis of the physical stick. Outside this region
+    # motor_teleop re-scales continuously back to 0..100%, so fine steering is
+    # retained and there is no sudden ~10 deg jump after center.
+    joy_yaw_deadzone: 0.18
+    # Many physical sticks stop before the evdev ABS endpoint. Values at or
+    # above 90% normalized travel are treated as a true full-stick command.
+    joy_yaw_full_scale_threshold: 0.90
+    joy_axis_init_tolerance: 0.35
+    joy_auto_center: true
+    joy_auto_center_max_abs: 0.08
+    button_debounce_sec: 0.20
+    log_command_changes: true

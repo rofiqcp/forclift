@@ -96,6 +96,19 @@ ament_target_dependencies(
 target_link_libraries(agv_gui Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Network yaml-cpp)
 target_compile_options(agv_gui PRIVATE -Wno-psabi)
 
+
+# Browser operator console. Backend native C++/rclcpp + Qt Network; frontend
+# HTML/CSS/JS sepenuhnya lokal/offline dan mengikuti telemetry GUI navigation aktif.
+add_executable(agv_web_gui web/web_server.cpp)
+set_target_properties(agv_web_gui PROPERTIES AUTOMOC ON)
+target_include_directories(agv_web_gui PRIVATE gui include)
+ament_target_dependencies(
+  agv_web_gui
+  rclcpp rcl_interfaces action_msgs sensor_msgs std_msgs geometry_msgs nav_msgs visualization_msgs
+  std_srvs ament_index_cpp yolo_obstacle_detection_ros2)
+target_link_libraries(agv_web_gui Qt5::Core Qt5::Gui Qt5::Network yaml-cpp)
+target_compile_options(agv_web_gui PRIVATE -Wno-psabi)
+
 install(
   TARGETS
     imu_node
@@ -108,6 +121,7 @@ install(
     scan_self_filter
     navigation_runtime_validator
     agv_gui
+    agv_web_gui
     agv_gui_cpp
     mapping_gui_cpp
   DESTINATION lib/${PROJECT_NAME})
@@ -118,6 +132,9 @@ install(PROGRAMS
   scripts/agv_gui.py
   scripts/agv_gui_launcher.sh
   scripts/lidar_motor_off.py
+  scripts/mapping_web_controller.py
+  scripts/mapping_lidar_odom_bridge.py
+  scripts/nav_map_switch_controller.py
   scripts/autonomous_sensor_preflight.sh
   scripts/perception_preflight.sh
   scripts/autonomous_pre_amcl_gate.py
@@ -216,6 +233,7 @@ install(FILES
 
 install(DIRECTORY launch config rviz urdf meshes maps behavior_trees DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY gui/assets DESTINATION share/${PROJECT_NAME}/gui)
+install(DIRECTORY web/static DESTINATION share/${PROJECT_NAME}/web)
 install(DIRECTORY docs tools DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE
   PATTERN "*.pyc" EXCLUDE)

@@ -24,6 +24,8 @@ Keys (when --display 1): S=shot  R=reset  SPACE=pause  Q=quit
 
 import argparse
 import csv
+import json
+import os
 import math
 import statistics
 import sys
@@ -36,6 +38,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image
+from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
 
 from yolo_obstacle_detection_ros2.msg import (
@@ -53,6 +56,26 @@ def nan():
 def is_num(v):
     return v is not None and math.isfinite(v)
 
+
+
+
+def _flatten_scalar_cfg(node, prefix=""):
+    out = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            key = f"{prefix}.{k}" if prefix else str(k)
+            out.extend(_flatten_scalar_cfg(v, key))
+    elif isinstance(node, (bool, int, float, str)) and not isinstance(node, type(None)):
+        out.append((prefix, node))
+    return out
+
+
+def _set_cfg_path(cfg, dotted, value):
+    parts = dotted.split('.')
+    cur = cfg
+    for key in parts[:-1]:
+        cur = cur[key]
+    cur[parts[-1]] = value
 
 def normalize_angle_deg(a):
     """Wrap angle into (-180, 180]."""
@@ -124,15 +147,16 @@ class Measurement:
         "left_hole_valid", "right_hole_valid", "hole_pair_valid",
         "block_detected", "block_geometry_valid", "measurement_valid",
         "metric_error_valid", "detection_stable", "stable_frame_count",
-        "stable_req", "status", "aligned",
+        "stable_req", "hole_gate_count", "hole_gate_req", "status", "aligned",
         "left_hole_center", "right_hole_center", "left_hole_conf", "right_hole_conf",
         "holes_midpoint", "hole_separation_px", "holes_line_angle_deg",
         "centerline_normal", "hole_unit", "block_offset_along_centerline_px",
         "block_offset_perpendicular_px", "offset_auto",
-        "expected_block_center", "detected_block_center", "block_confidence",
+        "expected_block_center", "detected_block_center", "detected_block_box", "block_confidence",
         "block_residual_x_px", "block_residual_y_px", "block_residual_distance_px",
         "alignment_center", "block_roi", "candidate_count",
         "setpoint_x_px", "setpoint_y_px",
+        "setpoint_x_min_px", "setpoint_x_max_px", "setpoint_y_min_px", "setpoint_y_max_px",
         "raw_error_lateral_px", "filtered_error_lateral_px",
         "meter_per_pixel", "raw_error_lateral_m", "filtered_error_lateral_m",
         "raw_error_yaw_deg", "filtered_error_yaw_deg", "setpoint_yaw_offset_deg",
@@ -152,6 +176,8 @@ class Measurement:
         self.detection_stable = False
         self.stable_frame_count = 0
         self.stable_req = 0
+        self.hole_gate_count = 0
+        self.hole_gate_req = 0
         self.status = "INVALID"
         self.aligned = False
         self.left_hole_center = (nan(), nan())
@@ -168,6 +194,7 @@ class Measurement:
         self.offset_auto = False
         self.expected_block_center = (nan(), nan())
         self.detected_block_center = (nan(), nan())
+        self.detected_block_box = None
         self.block_confidence = nan()
         self.block_residual_x_px = nan()
         self.block_residual_y_px = nan()
@@ -177,6 +204,10 @@ class Measurement:
         self.candidate_count = 0
         self.setpoint_x_px = 0.0
         self.setpoint_y_px = 0.0
+        self.setpoint_x_min_px = 0.0
+        self.setpoint_x_max_px = 0.0
+        self.setpoint_y_min_px = 0.0
+        self.setpoint_y_max_px = 0.0
         self.raw_error_lateral_px = nan()
         self.filtered_error_lateral_px = nan()
         self.meter_per_pixel = nan()
@@ -209,8 +240,19 @@ class HoleGuidedAlignment:
 
         self.canvas_w = int(self.video_cfg["processing_width"])
         self.canvas_h = int(self.video_cfg["processing_height"])
-        self.setpoint_x = float(self.sp["x_px"])
-        self.setpoint_y = float(self.sp["y_px"])
+        self.setpoint_x_min = float(self.sp.get("x_min_px", self.sp.get("x_px", 640)))
+        self.setpoint_x_max = float(self.sp.get("x_max_px", self.sp.get("x_px", 640)))
+        self.setpoint_y_min = float(self.sp.get("y_min_px", self.sp.get("y_px", 640)))
+        self.setpoint_y_max = float(self.sp.get("y_max_px", self.sp.get("y_px", 640)))
+        if self.setpoint_x_min > self.setpoint_x_max:
+            self.setpoint_x_min, self.setpoint_x_max = self.setpoint_x_max, self.setpoint_x_min
+        if self.setpoint_y_min > self.setpoint_y_max:
+            self.setpoint_y_min, self.setpoint_y_max = self.setpoint_y_max, self.setpoint_y_min
+        self.setpoint_x = float(self.sp.get(
+            "x_px", 0.5 * (self.setpoint_x_min + self.setpoint_x_max)))
+        self.setpoint_y = float(self.sp.get(
+            "y_px", 0.5 * (self.setpoint_y_min + self.setpoint_y_max)))
+        self.focal_x_px = max(1.0, float(self.sp.get("focal_length_x_px", self.canvas_w)))
 
         self.hole_class = str(self.hole_cfg["class_name"])
         self.block_class = str(self.block_cfg["class_name"])
@@ -222,6 +264,7 @@ class HoleGuidedAlignment:
         self.size_ratio_max = float(self.hole_cfg["maximum_size_ratio"])
         self.center_jump_max = float(self.filt_cfg.get("maximum_hole_center_jump_px",
                                                        self.hole_cfg.get("maximum_center_jump_px", 30)))
+        self.hole_gate_req = max(1, int(self.hole_cfg.get("pair_gate_frames", 2)))
 
         self.offset_along = self.block_cfg.get("block_offset_along_centerline_px")
         self.offset_perp = float(self.block_cfg.get("block_offset_perpendicular_px", 0.0))
@@ -248,23 +291,26 @@ class HoleGuidedAlignment:
         self.stable_req = int(self.align_cfg.get("stable_frame_requirement", 10))
 
         mpp = self.cal_cfg.get("meter_per_pixel_at_working_distance")
-        self.metric_valid = bool(self.cal_cfg.get("metric_calibration_valid", False))
-        self.mpp = float(mpp) if mpp is not None else None
+        self.mpp = float(mpp) if mpp is not None and float(mpp) > 0.0 else None
+        self.metric_valid = bool(self.cal_cfg.get("metric_calibration_valid", False)) and self.mpp is not None
         ymin = self.cal_cfg.get("calibration_y_min_px")
         ymax = self.cal_cfg.get("calibration_y_max_px")
         self.cal_ymin = float(ymin) if ymin is not None else None
         self.cal_ymax = float(ymax) if ymax is not None else None
-        if self.metric_valid and (self.mpp is None or self.cal_ymin is None or self.cal_ymax is None):
-            self.metric_valid = False
 
         # temporal state
         self.prev_pair = None
         self.prev_expected = None
         self.prev_lat_px_f = None
         self.stable_count = 0
+        self.hole_gate_count = 0
         self.offset_samples = []
-        self.offset_auto_active = self.offset_along is None
-        self.offset_auto_value = self.offset_along
+        # Pallet target is defined strictly by the physical construction
+        # hole pallet --- center block --- hole pallet.  Do not auto-learn an
+        # offset from arbitrary block detections because that can lock onto a
+        # neighbouring block and move the alignment target away from center.
+        self.offset_auto_active = False
+        self.offset_auto_value = 0.0
         self.last_status = "INVALID"
 
     # ------------------------------------------------------------------
@@ -362,19 +408,12 @@ class HoleGuidedAlignment:
         }
 
     def expected_block_center(self, geom):
+        """Target center is exactly midway between the two validated pallet holes."""
         mx, my = geom["midpoint"]
-        nx, ny = geom["normal"]
-        ux, uy = geom["unit"]
-        if self.offset_along is not None:
-            offset = self.offset_along
-        else:
-            offset = self.offset_auto_value if self.offset_auto_value is not None else 0.0
-        ex = mx + offset * nx + self.offset_perp * ux
-        ey = my + offset * ny + self.offset_perp * uy
-        return (ex, ey), offset
+        return (mx, my), 0.0
 
-    def find_block_in_roi(self, expected, blocks):
-        """Best block candidate whose center is inside ROI. Outside ROI never chosen."""
+    def find_block_in_roi(self, expected, blocks, geom):
+        """Select only the block physically between the two validated pallet holes."""
         ex, ey = expected
         x1 = max(0, int(ex - self.roi_hw))
         y1 = max(0, int(ey - self.roi_hh))
@@ -383,7 +422,12 @@ class HoleGuidedAlignment:
         roi = (x1, y1, x2, y2)
         if x2 - x1 < 10 or y2 - y1 < 10:
             return None, roi, []
-        in_roi = []
+
+        mx, my = geom["midpoint"]
+        ux, uy = geom["unit"]
+        nx, ny = geom["normal"]
+        half_sep = 0.5 * geom["separation"]
+        middle = []
         for b in blocks:
             if b["conf"] < self.block_conf:
                 continue
@@ -395,11 +439,25 @@ class HoleGuidedAlignment:
                     continue
                 if self.ar_max is not None and ar > self.ar_max:
                     continue
-            in_roi.append(b)
-        if not in_roi:
+
+            dx = b["cx"] - mx
+            dy = b["cy"] - my
+            along = dx * ux + dy * uy
+            perp = dx * nx + dy * ny
+            # Center must lie on the segment between both hole centers and
+            # remain close to the hole line. Blocks outside this construction
+            # are never allowed to become the alignment target.
+            if abs(along) > half_sep or abs(perp) > self.roi_hh:
+                continue
+            middle.append(b)
+
+        if not middle:
             return None, roi, []
-        best = min(in_roi, key=lambda b: math.hypot(b["cx"] - ex, b["cy"] - ey))
-        return best, roi, in_roi
+        best = min(
+            middle,
+            key=lambda b: math.hypot(b["cx"] - ex, b["cy"] - ey)
+            + (1.0 - b["conf"]) * 20.0)
+        return best, roi, middle
 
     def estimate_block_angle(self, canvas, box):
         """minAreaRect orientation of block ROI (diagnostic only)."""
@@ -440,10 +498,18 @@ class HoleGuidedAlignment:
         m = Measurement()
         m.setpoint_x_px = self.setpoint_x
         m.setpoint_y_px = self.setpoint_y
+        m.setpoint_x_min_px = self.setpoint_x_min
+        m.setpoint_x_max_px = self.setpoint_x_max
+        m.setpoint_y_min_px = self.setpoint_y_min
+        m.setpoint_y_max_px = self.setpoint_y_max
         m.offset_auto = self.offset_auto_active
         m.stable_req = self.stable_req
+        m.hole_gate_req = self.hole_gate_req
         m.setpoint_yaw_offset_deg = self.yaw_offset
-        m.meter_per_pixel = self.mpp if self.metric_valid else nan()
+        # Publish the configured m/px estimate so lateral error remains visible
+        # even before physical metric calibration is certified.  The separate
+        # metric_error_valid flag still remains false until calibration is valid.
+        m.meter_per_pixel = self.mpp if self.mpp is not None else nan()
 
         # convert detections to canvas coords (needs scale/pad from letterbox)
         scale = getattr(self, "_last_scale", 1.0)
@@ -462,6 +528,7 @@ class HoleGuidedAlignment:
             self.prev_expected = None
             self.prev_lat_px_f = None
             self.stable_count = 0
+            self.hole_gate_count = 0
             m.status = "HOLES LOST" if self.last_status not in ("INVALID", "HOLES LOST") else "INVALID"
             self.last_status = m.status
             return m
@@ -507,14 +574,29 @@ class HoleGuidedAlignment:
         m.block_offset_along_centerline_px = offset
         m.block_offset_perpendicular_px = self.offset_perp
 
-        m.candidate_count = len([b for b in blocks if b["conf"] >= self.block_conf])
-        best, roi, _ = self.find_block_in_roi(expected, blocks)
+        # Explicit hole-first temporal gate. A block may already be present in
+        # the YOLO array, but it is ignored until the same valid left+right hole
+        # pair has been observed for the configured number of consecutive frames.
+        self.hole_gate_count = min(self.hole_gate_count + 1, self.hole_gate_req)
+        m.hole_gate_count = self.hole_gate_count
+        if self.hole_gate_count < self.hole_gate_req:
+            m.status = "LOCKING HOLE PAIR"
+            self.prev_pair = (m.left_hole_center, m.right_hole_center)
+            self.prev_expected = expected
+            self.last_status = m.status
+            return m
+
+        best, roi, middle_candidates = self.find_block_in_roi(expected, blocks, sgeom)
+        # Report only candidates that satisfy hole---block---hole geometry;
+        # unrelated block detections are deliberately excluded here.
+        m.candidate_count = len(middle_candidates)
         m.block_roi = roi
 
         if best is not None:
             m.block_detected = True
             m.block_confidence = best["conf"]
             m.detected_block_center = (best["cx"], best["cy"])
+            m.detected_block_box = best["box"]
             rx = best["cx"] - expected[0]
             ry = best["cy"] - expected[1]
             m.block_residual_x_px = rx
@@ -548,37 +630,60 @@ class HoleGuidedAlignment:
         basic_valid = (m.left_hole_valid and m.right_hole_valid and m.hole_pair_valid
                        and m.block_detected and m.block_geometry_valid)
 
-        # yaw from hole line angle (primary)
-        raw_yaw = normalize_angle_deg(m.holes_line_angle_deg - self.yaw_offset)
-        m.raw_error_yaw_deg = raw_yaw
-        if is_num(raw_yaw):
-            prev = self.yaw_ema.value
-            if prev is not None and abs(normalize_angle_deg(raw_yaw - prev)) > self.max_yaw_jump:
-                m.yaw_outlier = True
-            else:
-                self.yaw_ema.update(raw_yaw)
-        m.filtered_error_yaw_deg = self.yaw_ema.value
+        # Camera yaw error is generated only from the SELECTED middle block.
+        # The two pallet holes remain the gate/reference used to decide which block
+        # is physically the middle one; unrelated blocks never produce yaw output.
+        # Pinhole bearing: + error means the middle block is to the right of the
+        # configured camera/fork setpoint center.
+        if basic_valid:
+            bx, by = best["cx"], best["cy"]
+            dx_px = bx - self.setpoint_x
+            raw_yaw = normalize_angle_deg(
+                math.degrees(math.atan2(dx_px, self.focal_x_px)) - self.yaw_offset)
+            m.raw_error_yaw_deg = raw_yaw
+            if is_num(raw_yaw):
+                prev = self.yaw_ema.value
+                if prev is not None and abs(normalize_angle_deg(raw_yaw - prev)) > self.max_yaw_jump:
+                    m.yaw_outlier = True
+                else:
+                    self.yaw_ema.update(raw_yaw)
+            m.filtered_error_yaw_deg = self.yaw_ema.value
+        else:
+            self.yaw_ema.reset()
+            m.raw_error_yaw_deg = nan()
+            m.filtered_error_yaw_deg = nan()
 
         if basic_valid:
-            m.alignment_center = expected
-            raw_px = expected[0] - self.setpoint_x
+            # Lateral output uses the straight-line center-to-center distance from
+            # the selected middle block to the rectangular camera setpoint center.
+            # Preserve the existing ROS sign convention: negative=left, positive=right.
+            bx, by = best["cx"], best["cy"]
+            m.alignment_center = (bx, by)
+            dx_px = bx - self.setpoint_x
+            dy_px = by - self.setpoint_y
+            straight_px = math.hypot(dx_px, dy_px)
+            raw_px = -straight_px if dx_px < 0.0 else straight_px
             m.raw_error_lateral_px = raw_px
             if self.prev_lat_px_f is not None and \
                     abs(raw_px - self.prev_lat_px_f) > self.max_lat_jump_m / (self.mpp or 1e-9):
                 m.lat_outlier = True
             else:
                 self.lat_ema_px.update(raw_px)
-                if self.metric_valid:
+                if self.mpp is not None:
                     self.lat_ema_m.update(raw_px * self.mpp)
             self.prev_lat_px_f = self.lat_ema_px.value
             m.filtered_error_lateral_px = self.lat_ema_px.value
-            if self.metric_valid:
+
+            # Keep an estimated metric lateral value visible whenever m/px is
+            # configured. metric_error_valid remains the independent flag that
+            # says whether this conversion has been physically calibrated.
+            if self.mpp is not None:
                 m.raw_error_lateral_m = raw_px * self.mpp
                 m.filtered_error_lateral_m = self.lat_ema_m.value
-                in_zone = (self.cal_ymin is None or expected[1] >= self.cal_ymin) and \
-                          (self.cal_ymax is None or expected[1] <= self.cal_ymax)
-                m.metric_error_valid = in_zone
-                if not in_zone:
+                in_zone = (self.cal_ymin is None or by >= self.cal_ymin) and \
+                          (self.cal_ymax is None or by <= self.cal_ymax)
+                m.metric_error_valid = bool(self.metric_valid and in_zone)
+                if self.metric_valid and not in_zone:
                     m.raw_error_lateral_m = nan()
                     m.filtered_error_lateral_m = nan()
         else:
@@ -655,13 +760,17 @@ def fmt(v, d=1, suf=""):
 
 
 def draw_hud(canvas, m, max_residual):
+    """Minimal geometry overlay; all textual indicators live in the Web GUI."""
+    _ = max_residual
     h, w = canvas.shape[:2]
     spx, spy = int(m.setpoint_x_px), int(m.setpoint_y_px)
+    sx1 = max(0, min(w - 1, int(m.setpoint_x_min_px)))
+    sx2 = max(0, min(w - 1, int(m.setpoint_x_max_px)))
+    sy1 = max(0, min(h - 1, int(m.setpoint_y_min_px)))
+    sy2 = max(0, min(h - 1, int(m.setpoint_y_max_px)))
 
-    # camera/fork reference axis: (640,700) -> (640,0)
-    cv2.line(canvas, (spx, spy), (spx, 0), (0, 0, 220), 1, cv2.LINE_AA)
-    # setpoint marker at (640,700), drawn pointing up, fully inside frame
-    draw_marker(canvas, (spx, spy), (0, 0, 255), "arrow_up", 12)
+    cv2.rectangle(canvas, (sx1, sy1), (sx2, sy2), (0, 0, 255), 2, cv2.LINE_AA)
+    draw_marker(canvas, (spx, spy), (0, 0, 255), "cross", 9)
 
     if m.left_hole_valid and m.right_hole_valid:
         lx, ly = map(int, m.left_hole_center)
@@ -672,98 +781,14 @@ def draw_hud(canvas, m, max_residual):
         mx, my = map(int, m.holes_midpoint)
         draw_marker(canvas, (mx, my), (0, 255, 255), "diamond", 6)
 
-    if is_num(m.centerline_normal[0]):
-        mx, my = m.holes_midpoint
-        nx, ny = m.centerline_normal
-        L = 260.0
-        cv2.line(canvas, (int(mx - nx * L), int(my - ny * L)),
-                 (int(mx + nx * L), int(my + ny * L)), (255, 200, 0), 1, cv2.LINE_AA)
-
-    if is_num(m.expected_block_center[0]):
-        ex, ey = map(int, m.expected_block_center)
-        draw_marker(canvas, (ex, ey), (255, 255, 0), "cross", 8)
-        if m.block_roi:
-            x1, y1, x2, y2 = m.block_roi
-            cv2.rectangle(canvas, (x1, y1), (x2, y2), (255, 255, 0), 1, cv2.LINE_AA)
-        mx, my = map(int, m.holes_midpoint)
-        cv2.arrowedLine(canvas, (ex, ey), (mx, my), (0, 255, 120), 2, cv2.LINE_AA, tipLength=0.15)
-        cv2.line(canvas, (ex, ey), (spx, ey), (200, 200, 200), 1, cv2.LINE_AA)
-
     if m.block_detected:
         bx, by = map(int, m.detected_block_center)
+        if m.detected_block_box is not None:
+            bx1, by1, bx2, by2 = map(int, m.detected_block_box)
+            cv2.rectangle(canvas, (bx1, by1), (bx2, by2), (0, 255, 0), 2, cv2.LINE_AA)
         draw_marker(canvas, (bx, by), (0, 255, 0), "circle", 6)
-        if is_num(m.expected_block_center[0]):
-            ex, ey = map(int, m.expected_block_center)
-            cv2.line(canvas, (bx, by), (ex, ey), (0, 255, 0), 1, cv2.LINE_AA)
-
-    # ---- HUD (left panel: detection + geometry; right panel: alignment output) ----
-    cv2.rectangle(canvas, (10, 10), (630, 380), (0, 0, 0), -1)
-    cv2.addWeighted(canvas.copy(), 0.72, canvas, 0.28, 0, canvas)
-
-    st_color = (0, 255, 0) if m.status == "ALIGNED" else \
-               (0, 255, 255) if m.status in ("ALIGNING", "NOT STABLE") else (0, 0, 255)
-
-    def pt_str(p, d=1):
-        if not is_num(p[0]):
-            return "N/A"
-        return f"({p[0]:.{d}f}, {p[1]:.{d}f})"
-
-    # LEFT column
-    left_lines = [
-        ("HOLE-GUIDED BLOCK ALIGNMENT", (255, 255, 255)),
-        (f"Res: {w} x {h}   Set point: ({spx}, {spy})", (255, 255, 255)),
-        ("", None),
-        ("DETECTION", (255, 255, 255)),
-        (f"Left hole  : {'VALID' if m.left_hole_valid else 'INVALID'}", (0, 255, 255) if m.left_hole_valid else (0, 0, 255)),
-        (f"Right hole : {'VALID' if m.right_hole_valid else 'INVALID'}", (0, 255, 255) if m.right_hole_valid else (0, 0, 255)),
-        (f"Hole pair  : {'VALID' if m.hole_pair_valid else 'INVALID'}", (0, 255, 255) if m.hole_pair_valid else (0, 0, 255)),
-        (f"Block in ROI: {'TRUE' if m.block_detected else 'FALSE'}  n={m.candidate_count}", (0, 255, 0) if m.block_detected else (0, 0, 255)),
-        (f"Block geom : {'VALID' if m.block_geometry_valid else 'INVALID'}  res {fmt(m.block_residual_distance_px, 1)}/{max_residual:.0f}px", (0, 255, 0) if m.block_geometry_valid else (0, 0, 255)),
-        (f"Stable fr  : {m.stable_frame_count}/{m.stable_req}", (0, 255, 255)),
-        ("", None),
-        ("HOLE GEOMETRY", (255, 255, 255)),
-        (f"Midpoint   : {pt_str(m.holes_midpoint)}  sep {fmt(m.hole_separation_px, 1)}px", (0, 255, 255)),
-        (f"Centerline : n=({fmt(m.centerline_normal[0], 3)}, {fmt(m.centerline_normal[1], 3)})  off {fmt(m.block_offset_along_centerline_px, 1)}px" + (" [AUTO]" if m.offset_auto else ""), (255, 200, 0)),
-        ("", None),
-        ("BLOCK GEOMETRY", (255, 255, 255)),
-        (f"Expected   : {pt_str(m.expected_block_center)}", (255, 255, 0)),
-        (f"Detected   : {pt_str(m.detected_block_center)}", (0, 255, 0)),
-        (f"Residual   : {fmt(m.block_residual_distance_px, 1)}px", (0, 255, 0) if m.block_geometry_valid else (0, 0, 255)),
-    ]
-
-    # RIGHT column
-    right_lines = [
-        ("REFERENCE", (255, 255, 255)),
-        (f"Set point  : X {m.setpoint_x_px:.0f}px  Y {m.setpoint_y_px:.0f}px", (0, 0, 255)),
-        (f"Yaw offset : {fmt(m.setpoint_yaw_offset_deg, 2)} deg", (255, 255, 255)),
-        ("", None),
-        ("ALIGNMENT OUTPUT", (255, 255, 255)),
-        (f"Lat err    : {fmt(m.filtered_error_lateral_m, 4, ' m') if m.metric_error_valid else 'N/A m'}", (0, 255, 0) if m.metric_error_valid else (150, 150, 150)),
-        (f"Lat err dbg: {fmt(m.filtered_error_lateral_px, 1, ' px')}", (0, 255, 255)),
-        (f"Yaw err    : {fmt(m.filtered_error_yaw_deg, 2, ' deg')}", (0, 255, 255)),
-        (f"Metric ok  : {'TRUE' if m.metric_error_valid else 'FALSE'}  m/px {fmt(m.meter_per_pixel, 6) if is_num(m.meter_per_pixel) else 'N/A'}", (0, 255, 0) if is_num(m.meter_per_pixel) else (150, 150, 150)),
-        (f"Aligned    : {'TRUE' if m.aligned else 'FALSE'}", (0, 255, 0) if m.aligned else (0, 0, 255)),
-        ("", None),
-        ("STATUS: " + m.status, st_color),
-    ]
-
-    y = 30
-    for text, color in left_lines:
-        if text:
-            cv2.putText(canvas, text, (18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.48, color, 1, cv2.LINE_AA)
-        y += 20
-
-    y = 30 + 15 * 20  # skip past left block to right column start (below detection area)
-    # Actually draw right column starting at a clear y
-    y = 30
-    for text, color in right_lines:
-        if text:
-            cv2.putText(canvas, text, (660, y), cv2.FONT_HERSHEY_SIMPLEX, 0.48, color, 1, cv2.LINE_AA)
-        y += 20
-
-    cv2.putText(canvas, "Keys: S=shot  R=reset  SPACE=pause  Q=quit",
-                 (18, canvas.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.40,
-                 (200, 200, 200), 1, cv2.LINE_AA)
+        cv2.arrowedLine(canvas, (bx, by), (spx, spy), (255, 0, 255), 2,
+                        cv2.LINE_AA, tipLength=0.08)
 
 
 # ----------------------------------------------------------------------------
@@ -817,7 +842,29 @@ class HoleBlockAlignmentNode(Node):
         with open(cfg_path) as f:
             cfg = yaml.safe_load(f)
 
+        # Mirror every scalar from the custom alignment YAML into ROS parameters.
+        # The web tuner restarts this node after a YAML edit and then reads these
+        # parameters back; APPLIED therefore means the algorithm loaded the value,
+        # not merely that a text file changed.
+        for cfg_path_key, cfg_value in _flatten_scalar_cfg(cfg):
+            param_name = "cfg." + cfg_path_key
+            self.declare_parameter(param_name, cfg_value)
+            _set_cfg_path(cfg, cfg_path_key, self.get_parameter(param_name).value)
+
         self.stage = HoleGuidedAlignment(cfg)
+        control_cfg = cfg.get("control", {})
+        self.kp_lateral = float(control_cfg.get("kp_lateral", 1.0))
+        self.kp_yaw = float(control_cfg.get("kp_yaw", 1.0))
+        self.approach_speed_mps = max(0.0, float(control_cfg.get("approach_speed_mps", 0.08)))
+        self.max_steering_rad = max(0.01, abs(float(control_cfg.get("max_steering_rad", 0.34))))
+        self.control_wheelbase_m = max(0.05, float(control_cfg.get("wheelbase_m", 0.70)))
+        self.control_output_enabled = bool(control_cfg.get("output_enabled", False))
+        self.control_preview_topic = str(control_cfg.get("preview_topic", "/docking/cmd_vel_preview"))
+        self.control_output_topic = str(control_cfg.get("output_topic", "/cmd_vel_docking_raw"))
+        self._last_control = {
+            "valid": False, "lat_term": 0.0, "yaw_term": 0.0,
+            "steering_rad": 0.0, "yaw_rate": 0.0, "speed_mps": 0.0,
+            "limited": False, "reason": "WAIT_ALIGNMENT"}
         self.bridge = CvBridge()
         self.display = display
 
@@ -876,6 +923,8 @@ class HoleBlockAlignmentNode(Node):
             AlignmentState, self.get_parameter("state_topic").value, state_qos)
         self.img_pub = self.create_publisher(
             Image, self.get_parameter("output_image_topic").value, img_qos)
+        self.docking_preview_pub = self.create_publisher(Twist, self.control_preview_topic, 10)
+        self.docking_output_pub = self.create_publisher(Twist, self.control_output_topic, 10)
 
         self.latest_img = None
         self.latest_obs = None
@@ -886,6 +935,10 @@ class HoleBlockAlignmentNode(Node):
         self._last_viz_pub = 0.0
         self._last_processed_monotonic = 0.0
         self._last_waiting_state_pub = 0.0
+        # Lightweight browser telemetry lives in tmpfs; no SSD write load.
+        self.web_status_path = Path("/dev/shm/agv_alignment_status.json")
+        self._last_web_status_write = 0.0
+        self._web_status_warned = False
 
         # Poll faster than the camera so a newly arrived frame is picked up
         # promptly, but tick() below guarantees each image is processed ONCE.
@@ -901,6 +954,33 @@ class HoleBlockAlignmentNode(Node):
             f"metric_valid={self.stage.metric_valid} mpp={self.stage.mpp} "
             f"csv={self.csv_path}")
 
+    def _compute_docking_control(self, m):
+        metric_ok = bool(m.metric_error_valid and is_num(m.filtered_error_lateral_m))
+        yaw_ok = is_num(m.filtered_error_yaw_deg)
+        geometry_ok = bool(m.hole_pair_valid and m.block_detected and m.block_geometry_valid)
+        valid = bool(metric_ok and yaw_ok and geometry_ok)
+        reason = "VALID" if valid else ("WAIT_METRIC_CALIBRATION" if geometry_ok and yaw_ok and not metric_ok else "WAIT_ALIGNMENT")
+        e_lat = float(m.filtered_error_lateral_m) if metric_ok else 0.0
+        e_yaw_rad = math.radians(float(m.filtered_error_yaw_deg)) if yaw_ok else 0.0
+        lat_term = self.kp_lateral * e_lat if valid else 0.0
+        yaw_term = self.kp_yaw * e_yaw_rad if valid else 0.0
+        raw_steer = -(lat_term + yaw_term) if valid else 0.0
+        steering = max(-self.max_steering_rad, min(self.max_steering_rad, raw_steer))
+        limited = valid and abs(raw_steer - steering) > 1e-9
+        speed = 0.0 if (not valid or m.aligned) else self.approach_speed_mps
+        yaw_rate = (speed / self.control_wheelbase_m) * math.tan(steering) if speed > 0.0 else 0.0
+        cmd = Twist()
+        cmd.linear.x = float(speed)
+        cmd.angular.z = float(yaw_rate)
+        self.docking_preview_pub.publish(cmd)
+        if self.control_output_enabled:
+            # Dedicated topic only; autonomous ESC mux is intentionally NOT wired
+            # to this topic by this patch. Invalid data always produces zero.
+            self.docking_output_pub.publish(cmd)
+        return {"valid": valid, "lat_term": lat_term, "yaw_term": yaw_term,
+                "steering_rad": steering, "yaw_rate": yaw_rate, "speed_mps": speed,
+                "limited": limited, "reason": reason}
+
     def img_cb(self, msg):
         self.latest_img = msg
         self._image_seq += 1
@@ -913,6 +993,83 @@ class HoleBlockAlignmentNode(Node):
         state.header.frame_id = "base_link"
         state.pallet_header_stamp = state.header.stamp
         self.state_pub.publish(state)
+
+    def _write_web_status(self, m=None, status=None, force=False):
+        """Publish GUI-only alignment indicators to tmpfs at <=10 Hz."""
+        now = time.perf_counter()
+        if not force and (now - self._last_web_status_write) < 0.10:
+            return
+
+        def num(v):
+            return float(v) if is_num(v) else None
+
+        def point(pt):
+            return [num(pt[0]), num(pt[1])] if pt is not None else [None, None]
+
+        if m is None:
+            data = {
+                "available": False,
+                "at_ms": int(time.time() * 1000),
+                "status": str(status or "WAITING"),
+            }
+        else:
+            data = {
+                "available": True,
+                "at_ms": int(time.time() * 1000),
+                "status": str(m.status or "--"),
+                "left_hole_valid": bool(m.left_hole_valid),
+                "right_hole_valid": bool(m.right_hole_valid),
+                "hole_pair_valid": bool(m.hole_pair_valid),
+                "hole_gate_count": int(m.hole_gate_count),
+                "hole_gate_req": int(m.hole_gate_req),
+                "block_detected": bool(m.block_detected),
+                "candidate_count": int(m.candidate_count),
+                "block_geometry_valid": bool(m.block_geometry_valid),
+                "block_residual_px": num(m.block_residual_distance_px),
+                "stable_frame_count": int(m.stable_frame_count),
+                "stable_req": int(m.stable_req),
+                "left_hole_center": point(m.left_hole_center),
+                "right_hole_center": point(m.right_hole_center),
+                "holes_midpoint": point(m.holes_midpoint),
+                "hole_separation_px": num(m.hole_separation_px),
+                "centerline_normal": point(m.centerline_normal),
+                "block_offset_px": num(m.block_offset_along_centerline_px),
+                "expected_block_center": point(m.expected_block_center),
+                "detected_block_center": point(m.detected_block_center),
+                "detected_block_box": [num(v) for v in m.detected_block_box] if m.detected_block_box is not None else None,
+                "setpoint_center": [num(m.setpoint_x_px), num(m.setpoint_y_px)],
+                "setpoint_box": [num(m.setpoint_x_min_px), num(m.setpoint_x_max_px),
+                                 num(m.setpoint_y_min_px), num(m.setpoint_y_max_px)],
+                "yaw_offset_deg": num(m.setpoint_yaw_offset_deg),
+                "error_lateral_m": num(m.filtered_error_lateral_m),
+                "error_lateral_px": num(m.filtered_error_lateral_px),
+                "error_yaw_deg": num(m.filtered_error_yaw_deg),
+                "metric_error_valid": bool(m.metric_error_valid),
+                "meter_per_pixel": num(m.meter_per_pixel),
+                "aligned": bool(m.aligned),
+                "controller_valid": bool(self._last_control.get("valid", False)),
+                "controller_reason": str(self._last_control.get("reason", "WAIT")),
+                "kp_lateral": float(self.kp_lateral),
+                "kp_yaw": float(self.kp_yaw),
+                "pid_lateral_output": float(self._last_control.get("lat_term", 0.0)),
+                "pid_yaw_output": float(self._last_control.get("yaw_term", 0.0)),
+                "steering_cmd_rad": float(self._last_control.get("steering_rad", 0.0)),
+                "steering_cmd_deg": math.degrees(float(self._last_control.get("steering_rad", 0.0))),
+                "linear_velocity_cmd": float(self._last_control.get("speed_mps", 0.0)),
+                "angular_velocity_cmd": float(self._last_control.get("yaw_rate", 0.0)),
+                "steering_limit_active": bool(self._last_control.get("limited", False)),
+                "control_output_enabled": bool(self.control_output_enabled),
+            }
+        try:
+            tmp = self.web_status_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, separators=(",", ":"), allow_nan=False), encoding="utf-8")
+            os.replace(str(tmp), str(self.web_status_path))
+            self._last_web_status_write = now
+            self._web_status_warned = False
+        except Exception as e:
+            if not self._web_status_warned:
+                self.get_logger().warning(f"web alignment status write failed: {e}")
+                self._web_status_warned = True
 
     def publish_waiting_state(self):
         """Publish an explicit heartbeat only when no camera frame is flowing."""
@@ -929,6 +1086,7 @@ class HoleBlockAlignmentNode(Node):
         state.detection_stable = False
         state.ready_for_insertion = False
         self._publish_state(state)
+        self._write_web_status(None, "WAITING CAMERA")
         self._last_waiting_state_pub = now
 
     def tick(self):
@@ -958,6 +1116,8 @@ class HoleBlockAlignmentNode(Node):
         m.padding_top = pad_y
         m.active_w = act_w
         m.active_h = act_h
+        self._last_control = self._compute_docking_control(m)
+        self._write_web_status(m)
 
         # publish alignment state
         state = AlignmentState()
@@ -967,6 +1127,14 @@ class HoleBlockAlignmentNode(Node):
         state.depth_quality = 0.0
         state.error_lateral_m = float(m.filtered_error_lateral_m) if is_num(m.filtered_error_lateral_m) else 0.0
         state.error_yaw_deg = float(m.filtered_error_yaw_deg) if is_num(m.filtered_error_yaw_deg) else 0.0
+        state.pid_lateral_output = float(self._last_control["lat_term"])
+        state.pid_yaw_output = float(self._last_control["yaw_term"])
+        state.desired_yaw_rate = float(self._last_control["yaw_rate"])
+        state.estimated_steering_deg = float(math.degrees(self._last_control["steering_rad"]))
+        state.linear_velocity_cmd = float(self._last_control["speed_mps"])
+        state.angular_velocity_cmd = float(self._last_control["yaw_rate"])
+        state.steering_limit_active = bool(self._last_control["limited"])
+        state.safety_stop_active = not bool(self._last_control["valid"])
         state.data_valid = bool(m.measurement_valid)
         if m.aligned:
             state.state = AlignmentState.ALIGNED

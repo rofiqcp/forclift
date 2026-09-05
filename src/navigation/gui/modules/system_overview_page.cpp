@@ -6,7 +6,7 @@
 // TelemetryStore.
 //
 // SINGLE SOURCE OF TRUTH: health is derived from the SAME telemetry channel aliases
-// the Navigation / Perception pages already read (e.g. "gnss_fix", "imu",
+// the Navigation / Perception pages already read (e.g. "lidar", "imu",
 // "esc_odom", "ekf_local", "ekf_global", "camera_health_state", "raw_detections",
 // "esc_status", "foc_telemetry", "esc_steer_actual", "system.nav2_ready", ...).
 // The previous version used raw ROS topic paths as channel keys, which never match
@@ -172,7 +172,7 @@ class SystemOverviewPage:public QWidget{
       mon_.append(m);
     };
     // NAVIGATION & LOCALIZATION
-    add(QStringLiteral("gnss"),QStringLiteral("GNSS"),QStringLiteral("NAVIGATION & LOCALIZATION"),QStringLiteral("gnss_fix"),QString(),QStringLiteral("gnss"),10.0,true);
+    add(QStringLiteral("lidar"),QStringLiteral("LiDAR"),QStringLiteral("NAVIGATION & LOCALIZATION"),QStringLiteral("lidar"),QString(),QStringLiteral("lidar"),5.0,true);
     add(QStringLiteral("imu"),QStringLiteral("IMU"),QStringLiteral("NAVIGATION & LOCALIZATION"),QStringLiteral("imu"),QString(),QStringLiteral("imu"),5.0,true);
     add(QStringLiteral("wheel_odom"),QStringLiteral("Wheel Odometry / Encoder"),QStringLiteral("NAVIGATION & LOCALIZATION"),QStringLiteral("esc_odom"),QString(),QStringLiteral("wheel_odom"),50.0,false);
     add(QStringLiteral("ekf_local"),QStringLiteral("EKF Local"),QStringLiteral("NAVIGATION & LOCALIZATION"),QStringLiteral("ekf_local"),QString(),QStringLiteral("ekf"),20.0,true);
@@ -186,8 +186,10 @@ class SystemOverviewPage:public QWidget{
     add(QStringLiteral("steering"),QStringLiteral("Steering"),QStringLiteral("DRIVE SYSTEM"),QStringLiteral("esc_steer_actual"),QString(),QStringLiteral("steering"),50.0,false);
     add(QStringLiteral("motor_enc"),QStringLiteral("Motor Encoder"),QStringLiteral("DRIVE SYSTEM"),QStringLiteral("foc_telemetry"),QString(),QStringLiteral("motor_enc"),50.0,false);
     // ROS / PLATFORM
-    add(QStringLiteral("nav2"),QStringLiteral("Nav2"),QStringLiteral("ROS / PLATFORM"),QStringLiteral("system.nav2_ready"),QStringLiteral("system.nav2_ready"),QStringLiteral("nav2"),0.0,false);
-    add(QStringLiteral("tf"),QStringLiteral("TF"),QStringLiteral("ROS / PLATFORM"),QString(),QString(),QStringLiteral("tf"),0.0,false);
+    // nav2_runtime/tf_runtime are GUI graph-health aliases emitted by RosBridge.
+    // They do not start or modify Nav2/TF; they only report what is actually present.
+    add(QStringLiteral("nav2"),QStringLiteral("Nav2"),QStringLiteral("ROS / PLATFORM"),QStringLiteral("nav2_runtime"),QString(),QStringLiteral("nav2"),0.0,false);
+    add(QStringLiteral("tf"),QStringLiteral("TF"),QStringLiteral("ROS / PLATFORM"),QStringLiteral("tf_runtime"),QString(),QStringLiteral("tf"),0.0,false);
     add(QStringLiteral("roscomm"),QStringLiteral("ROS 2 Communication"),QStringLiteral("ROS / PLATFORM"),QString(),QString(),QStringLiteral("roscomm"),0.0,true);
   }
   void buildCards(){
@@ -340,17 +342,16 @@ class SystemOverviewPage:public QWidget{
     }
   }
   void postQuality(Mon&m){
-    if(m.kind==QStringLiteral("gnss")){
-      int ft=t_->get(QStringLiteral("gnss_quality.fix_type"),0).toInt();
-      m.m3label=QStringLiteral("FIX");
-      m.m3value=fixName(ft);
-      bool fixOk=t_->get(QStringLiteral("gnss_quality.gnss_fix_ok"),false).toBool();
-      if(ft<3){
+    if(m.kind==QStringLiteral("lidar")){
+      const double valid=t_->get(QStringLiteral("lidar.valid_ratio_pct")).toDouble();
+      const double center=t_->get(QStringLiteral("lidar.range_center_m")).toDouble();
+      m.m3label=QStringLiteral("VALID");
+      m.m3value=std::isfinite(valid)?QStringLiteral("%1 %").arg(valid,0,'f',1):QStringLiteral("-");
+      if(m.received && std::isfinite(valid) && valid<10.0){
         m.health=Degraded;
-        m.reason=QStringLiteral("No position fix");
-      }else if(ft==6||!fixOk){
-        m.health=Degraded;
-        m.reason=QStringLiteral("Position quality below nominal (FLOAT)");
+        m.reason=QStringLiteral("Very low valid beam ratio");
+      }else if(m.received && std::isfinite(center) && m.reason.isEmpty()){
+        m.reason=QStringLiteral("Center %1 m").arg(center,0,'f',2);
       }
     }else if(m.kind==QStringLiteral("imu")){
       m.m3label=QStringLiteral("STATUS");
@@ -387,16 +388,42 @@ class SystemOverviewPage:public QWidget{
       m.m3label=QStringLiteral("IQ");
       m.m3value=QStringLiteral("%1 A").arg(number(t_->get(QStringLiteral("foc_telemetry.iq_a"))),0,'f',2);
     }else if(m.kind==QStringLiteral("nav2")){
-      bool ready=t_->get(QStringLiteral("system.nav2_ready"),false).toBool();
+      const bool graphPresent=t_->get(QStringLiteral("nav2_runtime.core_present"),false).toBool();
+      const int coreCount=t_->get(QStringLiteral("nav2_runtime.core_count"),0).toInt();
+      const bool readySeen=t_->timestamp(QStringLiteral("system.nav2_ready"))>0.0 &&
+                           t_->age(QStringLiteral("system.nav2_ready"))<3.0;
+      const bool ready=t_->get(QStringLiteral("system.nav2_ready"),false).toBool();
       m.m3label=QStringLiteral("MODE");
-      m.m3value=ready?QStringLiteral("READY"):QStringLiteral("STANDBY");
-      if(m.received&&!ready){
+      if(readySeen&&ready){
+        m.m3value=QStringLiteral("READY");
+        m.health=Operational;
+        m.reason=QStringLiteral("");
+      }else if(graphPresent){
+        m.m3value=readySeen?QStringLiteral("STARTING"):QStringLiteral("RUNNING");
+        m.health=readySeen?Degraded:Operational;
+        m.reason=readySeen?QStringLiteral("Nav2 nodes present; readiness false")
+                          :QStringLiteral("Nav2 core detected (%1/3)").arg(coreCount);
+      }else{
+        // gui.launch.py intentionally does not own Nav2. This is standby, not a
+        // communication failure. autonomous.launch.py will turn this green once
+        // planner/controller/bt_navigator are present.
+        m.m3value=QStringLiteral("STANDBY");
         m.health=Degraded;
-        m.reason=QStringLiteral("Nav2 not ready");
+        m.reason=QStringLiteral("Nav2 not started in current launch");
       }
     }else if(m.kind==QStringLiteral("tf")){
-      m.m3label=QStringLiteral("CHAIN");
-      m.m3value=QStringLiteral("map→odom");
+      const int dyn=t_->get(QStringLiteral("tf_runtime.dynamic_publishers"),0).toInt();
+      const int sta=t_->get(QStringLiteral("tf_runtime.static_publishers"),0).toInt();
+      m.m3label=QStringLiteral("PUB D/S");
+      m.m3value=QStringLiteral("%1 / %2").arg(dyn).arg(sta);
+      if(dyn>0||sta>0){
+        m.health=Operational;
+        m.reason=(dyn>0&&sta>0)?QStringLiteral("")
+                              :QStringLiteral("TF available (%1 only)").arg(dyn>0?QStringLiteral("dynamic"):QStringLiteral("static"));
+      }else{
+        m.health=Offline;
+        m.reason=QStringLiteral("No /tf or /tf_static publisher");
+      }
     }else if(m.kind==QStringLiteral("roscomm")){
       m.m3label=QStringLiteral("BRIDGE");
       m.m3value=QStringLiteral("agv_gui");
@@ -405,25 +432,16 @@ class SystemOverviewPage:public QWidget{
   void refresh(){
     double now=nowSec();
     for(auto&m:mon_){
-      if(m.kind==QStringLiteral("tf")||m.kind==QStringLiteral("roscomm"))continue;
+      if(m.kind==QStringLiteral("roscomm"))continue;
       sampleChannel(m,now);
       computeHealth(m,now);
       postQuality(m);
-    }
-    // derived: TF
-    for(auto&m:mon_)if(m.kind==QStringLiteral("tf")){
-      Health a=healthOf(QStringLiteral("ekf_local")),b=healthOf(QStringLiteral("ekf_global"));
-      m.commOnline=a!=Offline&&b!=Offline;
-      m.commText=m.commOnline?QStringLiteral("ONLINE"):QStringLiteral("OFFLINE");
-      if(a==Offline||b==Offline){m.health=Offline;m.reason=QStringLiteral("EKF chain stale");}
-      else if(a==Unknown||b==Unknown){m.health=Unknown;m.reason=QStringLiteral("Waiting for data");}
-      else{m.health=Operational;m.reason=QStringLiteral("");}
     }
     // derived: ROS Communication
     for(auto&m:mon_)if(m.kind==QStringLiteral("roscomm")){
       bool anyAlive=false;
       for(const auto&o:mon_){
-        if(o.disabled||o.channel.isEmpty()||o.kind==QStringLiteral("tf")||o.kind==QStringLiteral("roscomm"))continue;
+        if(o.disabled||o.channel.isEmpty()||o.kind==QStringLiteral("roscomm"))continue;
         if(o.received&&(now-o.lastMsgT)<2.0){anyAlive=true;break;}
       }
       m.commOnline=anyAlive;

@@ -68,6 +68,7 @@ class AmclReadyGate(Node):
         self.declare_parameter('stability_yaw_rad', 0.20)
         self.declare_parameter('diagnostic_timeout_sec', 600.0)
         self.declare_parameter('bootstrap_delay_sec', 0.8)
+        self.declare_parameter('initial_pose_backdate_sec', 0.15)
         self.declare_parameter('nomotion_update_period_sec', 1.0)
 
         self.map_topic = str(self.get_parameter('map_topic').value)
@@ -99,6 +100,7 @@ class AmclReadyGate(Node):
         self.stability_yaw = max(0.001, float(self.get_parameter('stability_yaw_rad').value))
         self.timeout_sec = max(10.0, float(self.get_parameter('diagnostic_timeout_sec').value))
         self.bootstrap_delay = max(0.2, float(self.get_parameter('bootstrap_delay_sec').value))
+        self.initial_pose_backdate = max(0.0, float(self.get_parameter('initial_pose_backdate_sec').value))
         self.nomotion_period = max(0.2, float(self.get_parameter('nomotion_update_period_sec').value))
 
         self.map_seen = False
@@ -115,6 +117,12 @@ class AmclReadyGate(Node):
         self.initial_pose_sent = False
         self.initial_pose_future = None
         self.initial_pose_request_started = None
+        # KNOWN_POSE bootstrap must not depend on lifecycle-service discovery.
+        # Under a heavily loaded Jetson the /amcl/get_state service can be late
+        # even though AMCL is already configured/active. Re-publish the
+        # map-hash-bound pose until AMCL confirms it by emitting /amcl_pose.
+        self.known_pose_last_publish = 0.0
+        self.known_pose_publish_period = 1.0
         self.global_localization_requested = False
         self.global_localization_complete = False
         self.global_localization_future = None
@@ -150,10 +158,10 @@ class AmclReadyGate(Node):
         self.initialpose_pub = self.create_publisher(
             PoseWithCovarianceStamped, '/initialpose', initialpose_qos)
         self.state_client = self.create_client(GetState, self.state_service)
-        self.initial_pose_client = self.create_client(SetInitialPose, '/amcl/set_initial_pose')
+        self.initial_pose_client = self.create_client(SetInitialPose, '/set_initial_pose')
         self.global_localization_client = self.create_client(
             Empty, self.global_localization_service)
-        self.nomotion_client = self.create_client(Empty, '/amcl/request_nomotion_update')
+        self.nomotion_client = self.create_client(Empty, '/request_nomotion_update')
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.timer = self.create_timer(0.5, self._check)
@@ -224,9 +232,56 @@ class AmclReadyGate(Node):
         return bool(self.known_hash and self.current_hash and self.known_hash == self.current_hash)
 
     def _initialize_if_needed(self):
+        now = time.monotonic()
+
+        # KNOWN_POSE is already map-hash-bound, so its delivery must not depend
+        # on lifecycle-service discovery. During a loaded autonomous startup
+        # FastDDS may discover /map and /initialpose before /amcl/get_state.
+        # Publish the valid pose repeatedly until AMCL confirms it via /amcl_pose.
+        if self.mode == 'KNOWN_POSE' and not self.operator_pose_requested and not self.pose_seen:
+            if not self.map_seen or now - self.start_wall < self.bootstrap_delay:
+                return
+            if not self._tf(self.odom_frame, self.base_frame):
+                # Do not inject an initial pose until EKF has published the local TF chain.
+                # This prevents AMCL's initialPoseReceived future-extrapolation race.
+                return
+            if not self._known_pose_hash_ok():
+                if now - self.last_operator_reminder >= 5.0:
+                    self.last_operator_reminder = now
+                    self.get_logger().error(
+                        f'[AMCL-READY] KNOWN_POSE blocked: configured map SHA256='
+                        f'{self.known_hash or "EMPTY"} current={self.current_hash or "EMPTY"}')
+                return
+            if now - self.known_pose_last_publish >= self.known_pose_publish_period:
+                msg = PoseWithCovarianceStamped()
+                # AMCL transforms the initial pose through odom->base. Under Jetson load
+                # TF can trail wall time slightly, so use the same conservative backdate as
+                # initialpose_stamp_relay instead of stamping a pose just ahead of TF.
+                msg.header.stamp = (
+                    self.get_clock().now() - Duration(seconds=self.initial_pose_backdate)
+                ).to_msg()
+                msg.header.frame_id = self.global_frame
+                msg.pose.pose.position.x = self.known_x
+                msg.pose.pose.position.y = self.known_y
+                half = 0.5 * self.known_yaw
+                msg.pose.pose.orientation.z = math.sin(half)
+                msg.pose.pose.orientation.w = math.cos(half)
+                msg.pose.covariance[0] = min(self.max_cov_x, 0.25)
+                msg.pose.covariance[7] = min(self.max_cov_y, 0.25)
+                msg.pose.covariance[35] = min(
+                    self.max_cov_yaw, (math.pi / 12.0) ** 2)
+                self.initialpose_pub.publish(msg)
+                self.initial_pose_sent = True
+                self.known_pose_last_publish = now
+                print(
+                    '[AMCL-READY] map-bound KNOWN_POSE published to /initialpose '
+                    '(service discovery not required)', flush=True)
+            return
+
+        # GLOBAL_LOCALIZATION / OPERATOR readiness still requires authoritative
+        # AMCL lifecycle state. This preserves the existing fail-closed behavior.
         if not (self.map_seen and self.amcl_active):
             return
-        now = time.monotonic()
         if self.active_since is None or now - self.active_since < self.bootstrap_delay:
             return
 
@@ -293,7 +348,12 @@ class AmclReadyGate(Node):
                 # subscribes to this topic and the UDP-only transport reliably
                 # delivers it (the service call was timing out under FastDDS UDP).
                 msg = PoseWithCovarianceStamped()
-                msg.header.stamp = self.get_clock().now().to_msg()
+                # AMCL transforms the initial pose through odom->base. Under Jetson load
+                # TF can trail wall time slightly, so use the same conservative backdate as
+                # initialpose_stamp_relay instead of stamping a pose just ahead of TF.
+                msg.header.stamp = (
+                    self.get_clock().now() - Duration(seconds=self.initial_pose_backdate)
+                ).to_msg()
                 msg.header.frame_id = self.global_frame
                 msg.pose.pose.position.x = self.known_x
                 msg.pose.pose.position.y = self.known_y

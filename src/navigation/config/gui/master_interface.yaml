@@ -3,7 +3,7 @@ runtime:
   live_apply_yaml: true
 navigation_menu:
   active_subsystem: "perception"
-  active_leaf: "4.1.1"
+  active_leaf: "4.4.1"
 map_overlay:
   pgm_opacity: 0.72
   osm_opacity: 0.95

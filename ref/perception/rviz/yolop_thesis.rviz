@@ -1,0 +1,119 @@
+# =============================================================================
+# KONFIGURASI RVIZ2 HUMBLE UNTUK HASIL YOLOP-v2
+# =============================================================================
+# Penting:
+# RViz2 Humble memakai properti "Topic" dengan sub-field "Value" dan QoS.
+# Jangan menggantinya menjadi format lama "Image Topic", karena topic akan dibaca
+# kosong dan RViz menampilkan: Error subscribing: Empty topic name.
+
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 78
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /YOLOP Realtime1
+      Splitter Ratio: 0.5
+      Tree Height: 640
+
+Visualization Manager:
+  Class: ""
+  Displays:
+    # -------------------------------------------------------------------------
+    # DISPLAY UTAMA
+    # -------------------------------------------------------------------------
+    # Frame ini sudah berisi citra kamera, bounding box hasil YOLO, lane merah,
+    # dan drivable area hijau. Hanya display ini yang aktif saat RViz dibuka.
+    - Alpha: 1
+      Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 255
+      Median window: 1
+      Min Value: 0
+      Name: YOLOP Realtime
+      Normalize Range: false
+      Topic:
+        # Depth 1 mencegah antrean frame lama pada subscriber RViz.
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /camera/yolop/image_annotated
+      Value: true
+
+    # -------------------------------------------------------------------------
+    # DISPLAY DEBUG DRIVABLE AREA
+    # -------------------------------------------------------------------------
+    # Nonaktif secara default agar mask tidak disalin GPU -> CPU. Aktifkan secara
+    # manual hanya ketika perlu memeriksa segmentasi area yang dapat dilalui.
+    - Alpha: 1
+      Class: rviz_default_plugins/Image
+      Enabled: false
+      Max Value: 255
+      Median window: 1
+      Min Value: 0
+      Name: Drivable Mask Debug
+      Normalize Range: false
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /yolop/drivable_mask
+      Value: false
+
+    # -------------------------------------------------------------------------
+    # DISPLAY DEBUG LANE
+    # -------------------------------------------------------------------------
+    # Nonaktif secara default agar bandwidth dan transfer memori tetap fokus ke
+    # video annotated utama.
+    - Alpha: 1
+      Class: rviz_default_plugins/Image
+      Enabled: false
+      Max Value: 255
+      Median window: 1
+      Min Value: 0
+      Name: Lane Mask Debug
+      Normalize Range: false
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /yolop/lane_mask
+      Value: false
+
+  Enabled: true
+
+  Global Options:
+    Background Color: 24; 24; 24
+    Fixed Frame: camera_color_optical_frame
+
+    # RViz dibatasi 30 Hz agar render scene tidak memboroskan GPU. FPS video aktual tetap mengikuti kamera
+    # dan kemampuan pipeline TensorRT.
+    Frame Rate: 30
+
+  Name: root
+
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+
+  Value: true
+
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      Near Clip Distance: 0.01
+      Pillar Box Width: 1
+      Target Frame: camera_color_optical_frame
+      Value: TopDownOrtho (rviz_default_plugins/Views)
+      X: 0.5
+      Y: 0.5
+    Saved: ~

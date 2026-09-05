@@ -185,8 +185,12 @@ public:
             get_parameter("visualization_topic").as_string(),
             rclcpp::SensorDataQoS().keep_last(1));
         auto status_qos = rclcpp::QoS(1).transient_local().reliable();
+        rclcpp::PublisherOptions status_options;
+        // Preserve late-joiner status semantics while allowing the camera image
+        // subscription to use intra-process communication when composable.
+        status_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
         status_pub_ = create_publisher<std_msgs::msg::String>(
-            "/obstacle_detection/status", status_qos);
+            "/obstacle_detection/status", status_qos, status_options);
         performance_pub_ = create_publisher<std_msgs::msg::String>(
             "/obstacle_detection/performance", rclcpp::QoS(10).best_effort());
 
