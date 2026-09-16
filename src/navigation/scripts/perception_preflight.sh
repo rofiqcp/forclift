@@ -7,6 +7,7 @@ echo "[PERCEPTION-PREFLIGHT-V59] clearing stale camera/YOLO/alignment/component 
 patterns=(
   "/yolo_obstacle_detection_ros2/lib/yolo_obstacle_detection_ros2/astra_rgb_v4l2_node"
   "/yolo_obstacle_detection_ros2/lib/yolo_obstacle_detection_ros2/obstacle_detector_node"
+  "/yolo_obstacle_detection_ros2/lib/yolo_obstacle_detection_ros2/warehouse_person_detector_node"
   "hole_block_alignment_node.py"
   "__node:=perception_container"
   "/perception_container"

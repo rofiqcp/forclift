@@ -4,14 +4,14 @@
     baudrate: 230400
     frame_id: lidar_link
     scan_frequency: 8.0
-    scan_publish_rate: 10.0
+    scan_publish_rate: 8.0
     scan_timeout: 0.6
     stream_recovery_timeout: 2.5
     stream_recovery_cooldown: 1.0
     recovery_grace_sec: 4.0
     hard_restart_delay_sec: 6.0
     soft_recovery_attempts_before_hard: 2
-    target_scan_period: 0.1
+    target_scan_period: 0.125
     range_min: 0.12
     range_max: 6.0
     angle_offset: 0.0

@@ -230,6 +230,28 @@ private:
     if (!map_) {
       return false;
     }
+
+    // The saved occupancy map is produced by a 2-D lidar mounted outside the
+    // robot centre. Cells underneath / inside the physical footprint can remain
+    // UNKNOWN even when the robot is demonstrably standing safely there. The
+    // previous validator required every interior sample to be known FREE, which
+    // rejected valid goals before SmacPlannerHybrid ever had a chance to apply
+    // the authoritative global-costmap collision check.
+    //
+    // Keep this bridge fail-safe but avoid duplicating Nav2 more strictly:
+    //   1) the goal centre itself must be a known FREE map cell;
+    //   2) every sampled footprint cell must remain inside the map;
+    //   3) any KNOWN OCCUPIED cell inside the footprint still rejects the goal;
+    //   4) UNKNOWN interior cells are deferred to PlannerServer/global costmap.
+    // Motion is therefore never authorized by this function alone.
+    int center_mx = 0;
+    int center_my = 0;
+    if (!worldToMap(pose.pose.position.x, pose.pose.position.y, center_mx, center_my) ||
+        !cellFree(center_mx, center_my))
+    {
+      return false;
+    }
+
     const double res = map_->info.resolution;
     const double yaw = yawFromQuaternion(pose.pose.orientation);
     const double c = std::cos(yaw);
@@ -242,7 +264,11 @@ private:
         const double wy = pose.pose.position.y + s * x + c * y;
         int mx = 0;
         int my = 0;
-        if (!worldToMap(wx, wy, mx, my) || !cellFree(mx, my)) {
+        if (!worldToMap(wx, wy, mx, my)) {
+          return false;
+        }
+        const int8_t value = map_->data[static_cast<size_t>(my) * map_->info.width + static_cast<size_t>(mx)];
+        if (value >= 65) {
           return false;
         }
       }
@@ -346,9 +372,27 @@ private:
 
   void actualPlanCallback(const nav_msgs::msg::Path::SharedPtr msg)
   {
-    if (msg->poses.size() < 2) {
+    if (msg->poses.size() < 2 || !pending_goal_) {
       return;
     }
+
+    // /plan is VOLATILE and can deliver one final sample from a canceled
+    // generation while a new goal is already being processed.  Never let that
+    // stale sample repopulate the durable /smac_plan preview.  The endpoint of
+    // the Nav2 planner result must still correspond to the currently pending
+    // (possibly snapped) goal before it is mirrored to the web/RViz path.
+    const auto & end = msg->poses.back().pose.position;
+    const auto & goal = pending_goal_->pose.position;
+    const double endpoint_error = std::hypot(end.x - goal.x, end.y - goal.y);
+    constexpr double kActualPlanGoalMatchToleranceM = 0.75;
+    if (endpoint_error > kActualPlanGoalMatchToleranceM) {
+      RCLCPP_DEBUG(
+        get_logger(),
+        "[GOAL-BRIDGE-CPP] ignoring stale /plan: endpoint %.3f m from current goal generation %lu",
+        endpoint_error, static_cast<unsigned long>(generation_));
+      return;
+    }
+
     auto out = *msg;
     if (out.header.frame_id.empty()) {
       out.header.frame_id = default_frame_;
@@ -564,16 +608,21 @@ private:
         if (request_generation != generation_) {
           return;
         }
-        nav_send_in_flight_ = false;
+        // Publish the accepted handle before clearing the in-flight guard.
+        // With a MultiThreadedExecutor the 100 ms pump can run between those
+        // two assignments; clearing the guard first allowed a duplicate
+        // NavigateToPose request, causing BT preemption before FollowPath/MPPI.
         if (!handle) {
+          nav_send_in_flight_ = false;
           publishStatus("NAV_REJECTED", "BT Navigator rejected NavigateToPose");
           publishGoalEvent("NAV_REJECTED", "BT Navigator rejected NavigateToPose");
           return;
         }
         active_nav_goal_ = handle;
+        nav_send_in_flight_ = false;
         publishGoalEvent("ACCEPTED");
-        publishStatus("NAVIGATING", "preview path accepted; MPPI navigation started");
-        RCLCPP_INFO(get_logger(), "[GOAL-BRIDGE-CPP] NavigateToPose accepted; MPPI control may start");
+        publishStatus("NAVIGATING", "NavigateToPose accepted; waiting for BT FollowPath / MPPI");
+        RCLCPP_INFO(get_logger(), "[GOAL-BRIDGE-CPP] NavigateToPose accepted; waiting for FollowPath/MPPI");
       };
     options.result_callback =
       [this, request_generation](const NavigateGoalHandle::WrappedResult & wrapped) {
@@ -592,6 +641,7 @@ private:
         active_nav_goal_.reset();
         pending_goal_.reset();
         preview_ready_ = false;
+        clearPreview();
       };
 
     navigate_client_->async_send_goal(nav_goal, options);

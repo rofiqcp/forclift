@@ -29,46 +29,26 @@ def main() -> int:
     catalog = (GUI / 'agv_navigation_bab4_catalog.inc').read_text(encoding='utf-8')
     blocks = re.findall(r'navAdd\((.*?)\);', catalog, flags=re.S)
 
-    # Latest TA structure has 32 Navigation leaves. 4.1.6 TF is intentionally
-    # a manual ExperimentSpec (default TF rows), so 31 are navAdd blocks.
-    if len(blocks) != 31:
-        fail(f'expected 31 navAdd leaves + manual 4.1.6 TF leaf, found {len(blocks)} navAdd blocks')
+    # Report-aligned Navigation BAB IV has 24 leaves. 4.1.6 TF is intentionally
+    # a manual ExperimentSpec, so 23 are navAdd blocks.
+    if len(blocks) != 23:
+        fail(f'expected 23 navAdd leaves + manual 4.1.6 TF leaf, found {len(blocks)} navAdd blocks')
     if 'spec.id = QStringLiteral("4.1.6")' not in catalog:
         fail('manual TF leaf 4.1.6 is missing')
 
     expected_headings = [
-        '4.1.1 Pengujian Komunikasi Sensor',
-        '4.1.2 Pengujian Data Raw LiDAR',
-        '4.1.3 Pengujian Data Raw IMU',
-        '4.1.4 Pengujian Data Raw Odometri',
-        '4.1.5 Analisis Sinkronisasi LiDAR, IMU, dan Odometri',
-        '4.1.6 Validasi Transformasi TF',
-        '4.2.1 Hasil Mapping 1',
-        '4.2.2 Hasil Mapping 2',
-        '4.2.3 Hasil Mapping 3',
-        '4.2.4 Loop Closure dan Drift',
-        '4.2.5 Analisis Kualitas Struktur Map',
-        '4.2.6 Perbandingan dan Pemilihan Map Terbaik',
-        '4.2.7 Validasi Map Terpilih',
-        '4.3.1 Akurasi Pose Statis AMCL',
-        '4.3.2 Repeatability Pose AMCL',
-        '4.3.3 Waktu Konvergensi Initial Pose',
-        '4.3.4 Tuning min_particles / max_particles',
-        '4.3.5 Pengujian Relocalization',
-        '4.3.6 Pengujian Localization Dinamis',
-        '4.3.7 Validasi AMCL Final',
-        '4.4.1 Validasi Input Global Costmap',
-        '4.4.2 Tuning minimum_turning_radius',
-        '4.4.3 Pengujian Beberapa Start-Goal',
-        '4.4.4 Repeatability Planner',
-        '4.4.5 Analisis Feasibility Jalur terhadap Kinematika AGV',
-        '4.4.6 Validasi Hybrid-A* Final',
-        '4.5.1 Lintasan Lurus',
-        '4.5.2 Belok 90°',
-        '4.5.3 Koridor',
-        '4.5.4 U-Turn',
-        '4.5.5 Skenario Kompleks',
-        '4.5.6 Rekapitulasi Performa Sistem',
+        '4.1.1 Pengujian Komunikasi Sensor', '4.1.2 Pengujian Data Raw LiDAR',
+        '4.1.3 Pengujian Data Raw IMU', '4.1.4 Pengujian Data Raw Odometri',
+        '4.1.5 Analisis Sinkronisasi LiDAR, IMU, dan Odometri', '4.1.6 Validasi Transformasi TF',
+        '4.2.1 Hasil Mapping 1', '4.2.2 Hasil Mapping 2', '4.2.3 Hasil Mapping 3',
+        '4.2.4 Loop Closure dan Drift', '4.2.5 Analisis Kualitas Struktur Map',
+        '4.2.6 Perbandingan dan Pemilihan Map Terbaik', '4.2.7 Validasi Map Terpilih',
+        '4.3.1 Akurasi Pose Statis AMCL', '4.3.2 Repeatability Pose AMCL',
+        '4.3.3 Waktu Konvergensi Initial Pose', '4.3.4 Tuning min_particles / max_particles',
+        '4.3.5 Pengujian Relocalization', '4.3.6 Pengujian Lokalisasi Dinamis',
+        '4.3.7 Validasi AMCL Final', '4.4.1 Validasi Global Costmap dan Hybrid A*',
+        '4.4.2 Tuning dan Pengujian Smac Planner Hybrid',
+        '4.4.3 Pengujian Navigasi pada Variasi Lintasan', '4.4.4 Rekapitulasi Performa Navigasi',
     ]
     for heading in expected_headings:
         if heading not in catalog:
@@ -99,7 +79,7 @@ def main() -> int:
     if len(ids) != len(set(ids)):
         fail('duplicate Navigation leaf IDs')
 
-    expected_counts = {'4.1': 6, '4.2': 7, '4.3': 7, '4.4': 6, '4.5': 6}
+    expected_counts = {'4.1': 6, '4.2': 7, '4.3': 7, '4.4': 4}
     for group, expected in expected_counts.items():
         actual = sum(item.startswith(group + '.') for item in ids)
         if actual != expected:
@@ -107,12 +87,13 @@ def main() -> int:
 
     required_columns = {
         '4.1.2': ['Jarak Ref (m)', 'Mean LiDAR (m)', 'MAE (m)', 'RMSE (m)', 'Std Dev (m)', 'Valid Ratio (%)'],
+        '4.1.3': ['Pengujian', 'Sudut Referensi (deg)', 'Yaw IMU (deg)', 'Error Yaw (deg)', 'MAE Yaw (deg)', 'RMSE Yaw (deg)', 'Status'],
         '4.2.6': ['Metrik', 'Map 1', 'Map 2', 'Map 3', 'Terbaik', 'Keputusan'],
         '4.3.1': ['GT X (m)', 'GT Y (m)', 'GT Yaw (deg)', 'AMCL X (m)', 'AMCL Y (m)', 'Error Posisi (cm)', 'Error Yaw (deg)'],
         '4.3.4': ['min_particles', 'max_particles', 'Waktu Konvergensi (s)', 'Error Posisi (cm)', 'CPU Mean (%)'],
-        '4.4.2': ['minimum_turning_radius (m)', 'Planning Time (ms)', 'Path Length (m)', 'Feasible Fisik'],
-        '4.4.3': ['Skenario', 'Start', 'Goal', 'Path Length (m)', 'Planning Time (ms)', 'Reverse/Cusp'],
-        '4.5.6': ['Skenario', 'Percobaan', 'Berhasil', 'Success Rate (%)', 'Waktu Rata-rata (s)', 'Error Akhir Rata-rata (m)'],
+        '4.4.2': ['minimum_turning_radius (m)', 'Planning Time (ms)', 'Path Length (m)', 'CTE RMSE (m)'],
+        '4.4.3': ['Skenario', 'Run', 'Goal Status', 'Waktu Navigasi (s)', 'Path Length (m)', 'CTE RMSE (m)', 'Endpoint Error (m)'],
+        '4.4.4': ['Skenario', 'Percobaan', 'Berhasil', 'Success Rate (%)', 'Waktu Rata-rata (s)', 'Error Akhir Rata-rata (m)'],
     }
     for leaf_id, columns in required_columns.items():
         block = by_id.get(leaf_id)
@@ -122,16 +103,15 @@ def main() -> int:
             if f'"{column}"' not in block:
                 fail(f'{leaf_id} missing column {column!r}')
 
-    # 4.5.1..4.5.5 intentionally share one endColumns definition.
-    for column in ('Run', 'Waktu (s)', 'Path Length (m)', 'Error Posisi Akhir (m)',
-                   'Error Yaw Akhir (deg)', 'CTE RMSE (m)', 'Status'):
-        if f'"{column}"' not in catalog:
-            fail(f'4.5 shared end-to-end columns missing {column!r}')
 
     required_graphs = (
         'Gambar 4.1 Error pengukuran LiDAR terhadap jarak referensi',
+        'Perbandingan yaw IMU terhadap sudut referensi',
+        'Error yaw terhadap sudut referensi',
+        'MAE dan RMSE yaw terhadap sudut referensi',
         'Gambar 4.2 Perbandingan RMSE struktur tiga map',
-        'Gambar 4.3 Error posisi akhir pada lima skenario navigasi',
+        'Gambar 4.5 Trajectory aktual terhadap global path',
+        'Gambar 4.7 Success rate dan waktu navigasi tiap skenario',
     )
     for graph in required_graphs:
         if graph not in catalog:
@@ -166,12 +146,11 @@ def main() -> int:
         'currentId_.startsWith(QStringLiteral("4.2"))',
         'currentId_.startsWith(QStringLiteral("4.3"))',
         'currentId_.startsWith(QStringLiteral("4.4"))',
-        'currentId_.startsWith(QStringLiteral("4.5"))',
     ):
         if marker not in summary:
             fail(f'latest Navigation summary dispatch marker missing: {marker}')
 
-    print('PASS: latest TA BAB IV Navigation GUI = 32 leaves (4.1..4.5), report graphs, telemetry dispatch, and YAML bindings')
+    print('PASS: report-aligned BAB IV Navigation GUI = 24 leaves (4.1..4.4), report graphs, telemetry dispatch, and YAML bindings')
     return 0
 
 

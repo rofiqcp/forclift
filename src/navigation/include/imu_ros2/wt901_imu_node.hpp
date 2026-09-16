@@ -49,7 +49,7 @@ private:
 
   // Parameters
   std::string port_;
-  int baudrate_{115200};
+  int baudrate_{921600};
   std::string frame_id_{"imu_link"};
   int publish_rate_{50};
   bool use_ahrs_{true};
@@ -115,6 +115,12 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr mag_pub_;
   rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr mag_field_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr euler_pub_;
+  // Engineering-unit raw sensor data before bias / soft-iron correction.
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr raw_imu_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr raw_gyro_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr raw_accel_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr raw_mag_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3Stamped>::SharedPtr raw_euler_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
 

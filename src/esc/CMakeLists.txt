@@ -31,7 +31,7 @@ add_executable(esc_keyboard_teleop src/teleop_keyboard_global.cpp)
 ament_target_dependencies(esc_keyboard_teleop rclcpp geometry_msgs std_msgs)
 
 add_executable(winch_serial_node src/winch_serial_node.cpp)
-ament_target_dependencies(winch_serial_node rclcpp std_msgs)
+ament_target_dependencies(winch_serial_node rclcpp std_msgs geometry_msgs sensor_msgs)
 
 # Nav2 ControllerServer wrapper belongs to ESC because this package owns the
 # Ackermann actuator interface from cmd_vel through steering/speed commands.

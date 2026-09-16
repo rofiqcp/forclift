@@ -66,7 +66,7 @@ def generate_launch_description():
             'output_topic': '/obstacle_detection/obstacles',
             'visualization_topic': '/obstacle_detection/visualization',
             'max_inference_fps': 30.0,
-            'max_visualization_fps': 20.0,
+            'max_visualization_fps': 6.0,
         }],
     )
 
@@ -84,7 +84,7 @@ def generate_launch_description():
             'output_image_topic': '/fork_alignment/image',
             'save_csv': False,
             'save_output_video': False,
-            'visualization_fps': 20.0,
+            'visualization_fps': 8.0,
             'use_sim_time': ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool),
         }],
     )

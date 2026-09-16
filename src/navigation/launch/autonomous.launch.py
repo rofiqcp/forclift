@@ -38,6 +38,7 @@ import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from datetime import datetime, timezone
 
 import xacro
@@ -79,6 +80,37 @@ DEFAULT_YOLO_MODELS_DIR = "/home/otomasi2/ros/models"
 DEFAULT_YOLO_MODEL = "auto"
 OLD_PLACEHOLDER = "/path/to/map.yaml"
 SERIAL_ROLE_STAGE = "serial-role-resolver"
+AUTONOMOUS_SINGLETON_PID = "/tmp/navigation_autonomous_full_stack.pid"
+
+
+def _claim_autonomous_singleton():
+    """Refuse a second full autonomous stack, regardless of entrypoint."""
+    current = os.getpid()
+    for _ in range(2):
+        try:
+            fd = os.open(AUTONOMOUS_SINGLETON_PID, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(str(current) + "\n")
+            return
+        except FileExistsError:
+            try:
+                owner = int(Path(AUTONOMOUS_SINGLETON_PID).read_text().strip())
+            except (OSError, ValueError):
+                owner = -1
+            if owner > 0 and owner != current:
+                try:
+                    os.kill(owner, 0)
+                except (ProcessLookupError, PermissionError):
+                    owner = -1
+                else:
+                    raise RuntimeError(
+                        f"autonomous full stack already running as PID {owner}; refusing duplicate ROS/Nav2/sensors"
+                    )
+            try:
+                os.unlink(AUTONOMOUS_SINGLETON_PID)
+            except FileNotFoundError:
+                pass
+    raise RuntimeError("unable to claim autonomous full-stack singleton PID file")
 
 
 def _resolve_rviz_desktop_env():
@@ -749,6 +781,7 @@ def _runtime_config(package_share: str, package_name: str, filename: str) -> str
     return target if os.path.isfile(target) else source
 
 def generate_launch_description():
+    _claim_autonomous_singleton()
     nav_share = get_package_share_directory("navigation")
     ensure_stage2_lidar_runtime(nav_share)
     ensure_stage5_localization_runtime(nav_share)
@@ -935,10 +968,10 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "map",
-            default_value="auto",
+            default_value=os.path.join(nav_share, "maps", "map_Navigation.yaml"),
             description=(
-                "Saved map YAML. 'auto' selects the newest valid YAML/PGM pair by map timestamp "
-                "across persistent /home/otomasi2/ros/maps plus legacy/backup map directories."
+                "Single operational Navigation Map used by AMCL and Nav2. "
+                "BAB 4.2 Map 1/2/3 remain mapping evidence and are not selected here."
             ),
         ),
         DeclareLaunchArgument(
@@ -976,8 +1009,8 @@ def generate_launch_description():
         DeclareLaunchArgument("winch_port", default_value="auto"),
         DeclareLaunchArgument("enable_camera", default_value="true"),
         DeclareLaunchArgument("camera_device", default_value="auto"),
-        DeclareLaunchArgument("camera_width", default_value="1280"),
-        DeclareLaunchArgument("camera_height", default_value="720"),
+        DeclareLaunchArgument("camera_width", default_value="640"),
+        DeclareLaunchArgument("camera_height", default_value="480"),
         DeclareLaunchArgument("camera_fps", default_value="30"),
         DeclareLaunchArgument("use_gpu_decode", default_value="true",
             description="GPU camera decode via NVIDIA nvv4l2decoder (MJPG hardware decode)"),
@@ -1008,6 +1041,8 @@ def generate_launch_description():
                          "fallback instead of respawn-looping when a GPU backend/model is temporarily unavailable")),
         DeclareLaunchArgument("yolo_max_inference_fps", default_value="30.0",
             description="YOLO processing ceiling; 30 Hz allows TensorRT to follow the 30 FPS camera while latest-frame dropping prevents backlog"),
+        DeclareLaunchArgument("enable_warehouse_person", default_value="true",
+            description="Enable low-rate person dynamic semantics; persistent LiDAR corridor obstacles cover static box/object"),
         DeclareLaunchArgument(
             "auto_initial_pose_from_mapping", default_value="true",
             description=(
@@ -1038,7 +1073,8 @@ def generate_launch_description():
             description="Local browser HMI TCP port"),
         DeclareLaunchArgument("web_read_only", default_value="false",
             description="Disable write/control endpoints when true"),
-        DeclareLaunchArgument("enable_rviz", default_value="true"),
+        DeclareLaunchArgument("enable_rviz", default_value="false",
+            description="RViz diagnostics are opt-in; browser HMI is default to avoid headless crash/respawn load"),
         DeclareLaunchArgument(
             "rviz_config",
             default_value=os.path.join(nav_share, "rviz", "autonomous.rviz"),
@@ -1105,10 +1141,31 @@ def generate_launch_description():
             "port": ParameterValue(LaunchConfiguration("web_port"), value_type=int),
             "read_only": ParameterValue(LaunchConfiguration("web_read_only"), value_type=bool),
             "camera_jpeg_fps": 5.0,
+            "mag_heading_offset_rad": 0.013525733461806364,
+            "mag_heading_sign": 1.0,
+            "mag_heading_validation_rmse_deg": 3.0407979290635105,
             "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
         }],
-        respawn=True,
-        respawn_delay=2.0,
+        # The browser HMI is the ownership anchor for this full-stack session.
+        # Do not respawn it silently: if it exits, the launch-wide exit handler
+        # below shuts the full stack down so LiDAR/IMU/camera cannot remain
+        # active without the operator Web GUI.
+        respawn=False,
+    )
+
+    web_gui_exit_shutdown = RegisterEventHandler(
+        OnProcessExit(
+            target_action=web_gui,
+            on_exit=[
+                LogInfo(msg=(
+                    "[WEB-GUI-OWNER] Web GUI exited; shutting down the full stack "
+                    "so sensor drivers cannot remain active without the HMI."
+                )),
+                EmitEvent(event=Shutdown(
+                    reason="Web GUI exited; stop sensor-owned autonomous stack"
+                )),
+            ],
+        )
     )
 
     # BAB 4.2.1-4.2.3 mapping control lives inside autonomous.  It reuses the
@@ -1441,7 +1498,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(os.path.join(nav_share, "launch", "imu.launch.py")),
         launch_arguments={
             "port": LaunchConfiguration("imu_port"),
-            "baudrate": "115200",
+            "baudrate": "921600",
             "frame_id": "imu_link",
             "use_sim_time": LaunchConfiguration("use_sim_time"),
         }.items(),
@@ -1673,6 +1730,12 @@ def generate_launch_description():
                 LaunchConfiguration("use_sim_time"), value_type=bool
             ),
             "autostart": True,
+            # Match the Nav2 planner/controller managers: under temporary Jetson
+            # load spikes a 4 s default bond timeout falsely declared healthy
+            # AMCL dead and deactivated it, leaving map->odom permanently absent.
+            "bond_timeout": 10.0,
+            "attempt_respawn_reconnection": True,
+            "bond_respawn_max_duration": 20.0,
             "node_names": ["amcl"],
         }],
     )
@@ -2204,6 +2267,35 @@ def generate_launch_description():
         }],
     )
 
+    warehouse_person = Node(
+        package="yolo_obstacle_detection_ros2",
+        executable="warehouse_person_detector_node",
+        name="warehouse_person_detector_node",
+        output="screen",
+        emulate_tty=True,
+        respawn=True,
+        respawn_delay=2.0,
+        condition=IfCondition(LaunchConfiguration("enable_warehouse_person")),
+        parameters=[{
+            "model_path": "/home/otomasi2/ros/models/yolov8n.onnx",
+            "engine_path": "/home/otomasi2/ros/models/yolov8n_fp16_640.engine",
+            "use_tensorrt": True,
+            "use_cuda": True,
+            "require_cuda": True,
+            "use_gpu_preprocess": True,
+            "allow_passthrough_without_model": False,
+            "input_topic": "/camera/color/image_raw",
+            "output_topic": "/warehouse_obstacle/persons",
+            "visualization_topic": "/warehouse_obstacle/visualization",
+            "status_topic": "/warehouse_obstacle/status",
+            "performance_topic": "/warehouse_obstacle/performance",
+            "confidence_threshold": 0.40,
+            "iou_threshold": 0.45,
+            "max_inference_fps": 2.0,
+            "max_visualization_fps": 1.0,
+        }],
+    )
+
     _runtime_root = os.environ.get(
         "AGV_RUNTIME_CONFIG_ROOT", os.path.join(os.environ.get("AGV_WS", "/home/otomasi2/ros"), "config", "runtime"))
     hole_alignment_cfg = os.path.join(
@@ -2228,7 +2320,7 @@ def generate_launch_description():
             "output_image_topic": "/fork_alignment/image",
             "save_csv": False,
             "save_output_video": False,
-            "visualization_fps": 20.0,
+            "visualization_fps": 8.0,
             "use_sim_time": ParameterValue(
                 LaunchConfiguration("use_sim_time"), value_type=bool),
         }],
@@ -2243,6 +2335,7 @@ def generate_launch_description():
         camera,
         TimerAction(period=0.10, actions=[camera_gate]),
         TimerAction(period=0.40, actions=[yolo]),
+        TimerAction(period=0.55, actions=[warehouse_person]),
         TimerAction(period=0.70, actions=[hole_alignment]),
     ])
 
@@ -2375,6 +2468,9 @@ def generate_launch_description():
         geometry_log,
 
         # Register every stage transition BEFORE starting Stage 0.
+        # Web GUI is the owner of the Web-GUI-started stack. If it exits, this
+        # handler emits launch-wide Shutdown and all sensor children are stopped.
+        web_gui_exit_shutdown,
         start_foundation_after_preflight,
         # Register mapping-style per-role serial handoff handlers before Stage 0.
         start_imu_after_transport_ready,

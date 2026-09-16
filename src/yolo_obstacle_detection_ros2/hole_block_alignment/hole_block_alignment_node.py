@@ -38,7 +38,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
 
@@ -161,7 +161,8 @@ class Measurement:
         "raw_error_lateral_px", "filtered_error_lateral_px",
         "meter_per_pixel", "raw_error_lateral_m", "filtered_error_lateral_m",
         "raw_error_yaw_deg", "filtered_error_yaw_deg", "setpoint_yaw_offset_deg",
-        "yaw_outlier", "lat_outlier",
+        "yaw_outlier", "yaw_source", "yaw_depth_ratio", "yaw_geometry_quality",
+        "camera_focal_x_px", "lat_outlier",
         "block_angle_deg",
         "resize_scale", "padding_left", "padding_top", "active_w", "active_h",
     )
@@ -218,6 +219,10 @@ class Measurement:
         self.filtered_error_yaw_deg = nan()
         self.setpoint_yaw_offset_deg = nan()
         self.yaw_outlier = False
+        self.yaw_source = "INVALID"
+        self.yaw_depth_ratio = nan()
+        self.yaw_geometry_quality = 0.0
+        self.camera_focal_x_px = nan()
         self.lat_outlier = False
         self.block_angle_deg = nan()
         self.resize_scale = 1.0
@@ -254,6 +259,7 @@ class HoleGuidedAlignment:
         self.setpoint_y = float(self.sp.get(
             "y_px", 0.5 * (self.setpoint_y_min + self.setpoint_y_max)))
         self.focal_x_px = max(1.0, float(self.sp.get("focal_length_x_px", self.canvas_w)))
+        self.principal_x_px = float(self.sp.get("principal_x_px", self.setpoint_x))
 
         self.hole_class = str(self.hole_cfg["class_name"])
         self.block_class = str(self.block_cfg["class_name"])
@@ -277,6 +283,11 @@ class HoleGuidedAlignment:
 
         self.yaw_offset = float(self.yaw_cfg.get("setpoint_yaw_offset_deg", 0.0))
         self.max_yaw_jump = float(self.yaw_cfg.get("maximum_yaw_jump_deg", 8.0))
+        self.yaw_method = str(self.yaw_cfg.get("method", "hole_pair_perspective")).strip().lower()
+        self.yaw_geometry_sign = float(self.yaw_cfg.get("geometry_sign", 1.0))
+        self.yaw_min_box_px = max(2.0, float(self.yaw_cfg.get("minimum_hole_box_px", 8.0)))
+        self.yaw_ratio_min = max(0.05, float(self.yaw_cfg.get("depth_ratio_min", 0.60)))
+        self.yaw_ratio_max = max(self.yaw_ratio_min + 0.01, float(self.yaw_cfg.get("depth_ratio_max", 1.67)))
 
         self.hole_ema = EMA2(float(self.filt_cfg.get("hole_position_smoothing_alpha", 0.25)))
         self.lat_ema_px = EMA(float(self.filt_cfg.get("lateral_error_smoothing_alpha", 0.25)))
@@ -313,6 +324,62 @@ class HoleGuidedAlignment:
         self.offset_auto_active = False
         self.offset_auto_value = 0.0
         self.last_status = "INVALID"
+        self.yaw_jump_candidate = None
+        self.yaw_jump_count = 0
+
+    def update_camera_intrinsics(self, focal_x_px, principal_x_px):
+        """Update canvas-space intrinsics from the live CameraInfo + letterbox."""
+        if is_num(focal_x_px) and focal_x_px > 1.0:
+            self.focal_x_px = float(focal_x_px)
+        if is_num(principal_x_px):
+            self.principal_x_px = float(principal_x_px)
+
+    def estimate_hole_pair_yaw(self, left, right):
+        """Estimate pallet yaw from perspective between equal physical hole openings.
+
+        For two openings on the same pallet face, apparent box size is inversely
+        proportional to depth.  The left/right size ratio therefore estimates
+        z_right/z_left.  Combining that ratio with both horizontal image rays
+        recovers the orientation of the line joining the two holes without
+        requiring the fork to be visible in the camera image.
+        """
+        fx = float(self.focal_x_px)
+        cx = float(self.principal_x_px)
+        if fx <= 1.0:
+            return nan(), nan(), 0.0
+
+        ratios = []
+        lw, lh = float(left.get("w", 0.0)), float(left.get("h", 0.0))
+        rw, rh = float(right.get("w", 0.0)), float(right.get("h", 0.0))
+        if lh >= self.yaw_min_box_px and rh >= self.yaw_min_box_px:
+            ratios.append(lh / rh)
+        if lw >= self.yaw_min_box_px and rw >= self.yaw_min_box_px:
+            ratios.append(lw / rw)
+        la, ra = lw * lh, rw * rh
+        if la >= self.yaw_min_box_px ** 2 and ra >= self.yaw_min_box_px ** 2:
+            ratios.append(math.sqrt(la / ra))
+        ratios = [r for r in ratios if is_num(r) and self.yaw_ratio_min <= r <= self.yaw_ratio_max]
+        if not ratios:
+            return nan(), nan(), 0.0
+
+        ratio = float(statistics.median(ratios))  # ~= z_right / z_left
+        ul = float(left["cx"]) - cx
+        ur = float(right["cx"]) - cx
+        dx_norm = (ur * ratio - ul) / fx
+        dz_norm = ratio - 1.0
+        if abs(dx_norm) < 1e-6 and abs(dz_norm) < 1e-6:
+            return 0.0, ratio, 1.0
+
+        yaw = self.yaw_geometry_sign * math.degrees(math.atan2(dz_norm, dx_norm))
+        yaw = normalize_angle_deg(yaw - self.yaw_offset)
+        # Consistency of independent width/height/area ratios is a useful
+        # confidence proxy; 1.0 means the three cues agree closely.
+        if len(ratios) > 1:
+            spread = statistics.pstdev([math.log(max(r, 1e-9)) for r in ratios])
+            quality = max(0.0, min(1.0, 1.0 - spread / 0.12))
+        else:
+            quality = 0.45
+        return yaw, ratio, quality
 
     # ------------------------------------------------------------------
     # Detection source: subscribed ObstacleArray (already in image pixels
@@ -631,26 +698,60 @@ class HoleGuidedAlignment:
         basic_valid = (m.left_hole_valid and m.right_hole_valid and m.hole_pair_valid
                        and m.block_detected and m.block_geometry_valid)
 
-        # Camera yaw error is generated only from the SELECTED middle block.
-        # The two pallet holes remain the gate/reference used to decide which block
-        # is physically the middle one; unrelated blocks never produce yaw output.
-        # Pinhole bearing: + error means the middle block is to the right of the
-        # configured camera/fork setpoint center.
+        # Yaw is now estimated from the perspective of the validated LEFT+RIGHT
+        # pallet holes.  The middle block still gates the physical construction
+        # (hole--block--hole) and remains the lateral docking target.  The fork
+        # itself does not have to be visible: camera/fork alignment is represented
+        # by the configured yaw offset and image setpoint.
         if basic_valid:
-            bx, by = best["cx"], best["cy"]
-            dx_px = bx - self.setpoint_x
-            raw_yaw = normalize_angle_deg(
-                math.degrees(math.atan2(dx_px, self.focal_x_px)) - self.yaw_offset)
+            raw_yaw = nan()
+            if self.yaw_method == "hole_pair_perspective":
+                raw_yaw, ratio, quality = self.estimate_hole_pair_yaw(left, right)
+                m.yaw_depth_ratio = ratio
+                m.yaw_geometry_quality = quality
+                m.yaw_source = "HOLE_PAIR_PERSPECTIVE"
+            elif self.yaw_method == "block_bearing":
+                bx, by = best["cx"], best["cy"]
+                dx_px = bx - self.setpoint_x
+                raw_yaw = normalize_angle_deg(
+                    math.degrees(math.atan2(dx_px, self.focal_x_px)) - self.yaw_offset)
+                m.yaw_source = "BLOCK_BEARING"
+                m.yaw_geometry_quality = 0.0
+            if self.yaw_method == "hole_pair_perspective" and not is_num(raw_yaw):
+                # Do not silently reuse the old block-bearing value in the accuracy
+                # experiment.  Invalid hole geometry must remain invalid rather than
+                # contaminating the yaw data with a different physical quantity.
+                m.yaw_source = "HOLE_PAIR_INVALID"
+                m.yaw_geometry_quality = 0.0
+            m.camera_focal_x_px = self.focal_x_px
             m.raw_error_yaw_deg = raw_yaw
             if is_num(raw_yaw):
                 prev = self.yaw_ema.value
-                if prev is not None and abs(normalize_angle_deg(raw_yaw - prev)) > self.max_yaw_jump:
-                    m.yaw_outlier = True
+                jump = abs(normalize_angle_deg(raw_yaw - prev)) if prev is not None else 0.0
+                if prev is not None and jump > self.max_yaw_jump:
+                    # Reject a one-frame spike, but accept a sustained new physical
+                    # pallet angle after three mutually-consistent frames.
+                    if self.yaw_jump_candidate is not None and \
+                            abs(normalize_angle_deg(raw_yaw - self.yaw_jump_candidate)) <= 2.0:
+                        self.yaw_jump_count += 1
+                    else:
+                        self.yaw_jump_candidate = raw_yaw
+                        self.yaw_jump_count = 1
+                    if self.yaw_jump_count >= 3:
+                        self.yaw_ema.value = float(raw_yaw)
+                        self.yaw_jump_candidate = None
+                        self.yaw_jump_count = 0
+                    else:
+                        m.yaw_outlier = True
                 else:
+                    self.yaw_jump_candidate = None
+                    self.yaw_jump_count = 0
                     self.yaw_ema.update(raw_yaw)
             m.filtered_error_yaw_deg = self.yaw_ema.value
         else:
             self.yaw_ema.reset()
+            self.yaw_jump_candidate = None
+            self.yaw_jump_count = 0
             m.raw_error_yaw_deg = nan()
             m.filtered_error_yaw_deg = nan()
 
@@ -823,6 +924,7 @@ class HoleBlockAlignmentNode(Node):
         self.declare_parameter("config",
             "/home/otomasi2/ros/src/yolo_obstacle_detection_ros2/hole_block_alignment/alignment_realtime.yaml")
         self.declare_parameter("image_topic", "/camera/color/image_raw")
+        self.declare_parameter("camera_info_topic", "/camera/color/camera_info")
         self.declare_parameter("obstacle_topic", "/obstacle_detection/obstacles")
         self.declare_parameter("state_topic", "/fork_alignment/state")
         self.declare_parameter("output_image_topic", "/fork_alignment/image")
@@ -913,6 +1015,9 @@ class HoleBlockAlignmentNode(Node):
         self.img_sub = self.create_subscription(
             Image, self.get_parameter("image_topic").value,
             self.img_cb, img_qos)
+        self.camera_info_sub = self.create_subscription(
+            CameraInfo, self.get_parameter("camera_info_topic").value,
+            self.camera_info_cb, img_qos)
         self.obs_sub = self.create_subscription(
             ObstacleArray, self.get_parameter("obstacle_topic").value,
             self.obs_cb, 10)
@@ -930,6 +1035,8 @@ class HoleBlockAlignmentNode(Node):
 
         self.latest_img = None
         self.latest_obs = None
+        self.camera_fx_raw = None
+        self.camera_cx_raw = None
         self.frame_idx = 0
         self._last_t = time.perf_counter()
         self._image_seq = 0
@@ -954,7 +1061,7 @@ class HoleBlockAlignmentNode(Node):
             f"HoleBlockAlignment ready: canvas={self.stage.canvas_w}x{self.stage.canvas_h} "
             f"setpoint=({self.stage.setpoint_x:.0f},{self.stage.setpoint_y:.0f}) "
             f"metric_valid={self.stage.metric_valid} mpp={self.stage.mpp} "
-            f"csv={self.csv_path}")
+            f"yaw_method={self.stage.yaw_method} csv={self.csv_path}")
 
     def _compute_docking_control(self, m):
         metric_ok = bool(m.metric_error_valid and is_num(m.filtered_error_lateral_m))
@@ -986,6 +1093,16 @@ class HoleBlockAlignmentNode(Node):
     def img_cb(self, msg):
         self.latest_img = msg
         self._image_seq += 1
+
+    def camera_info_cb(self, msg):
+        try:
+            fx = float(msg.k[0])
+            cx = float(msg.k[2])
+            if fx > 1.0 and math.isfinite(fx) and math.isfinite(cx):
+                self.camera_fx_raw = fx
+                self.camera_cx_raw = cx
+        except Exception:
+            pass
 
     def obs_cb(self, msg):
         self.latest_obs = msg
@@ -1043,6 +1160,10 @@ class HoleBlockAlignmentNode(Node):
                 "setpoint_box": [num(m.setpoint_x_min_px), num(m.setpoint_x_max_px),
                                  num(m.setpoint_y_min_px), num(m.setpoint_y_max_px)],
                 "yaw_offset_deg": num(m.setpoint_yaw_offset_deg),
+                "yaw_source": str(m.yaw_source),
+                "yaw_depth_ratio": num(m.yaw_depth_ratio),
+                "yaw_geometry_quality": num(m.yaw_geometry_quality),
+                "camera_focal_x_px": num(m.camera_focal_x_px),
                 "error_lateral_m": num(m.filtered_error_lateral_m),
                 "error_lateral_px": num(m.filtered_error_lateral_px),
                 "error_yaw_deg": num(m.filtered_error_yaw_deg),
@@ -1113,6 +1234,9 @@ class HoleBlockAlignmentNode(Node):
         self.stage._last_scale = scale
         self.stage._last_pad_x = pad_x
         self.stage._last_pad_y = pad_y
+        if self.camera_fx_raw is not None and self.camera_cx_raw is not None:
+            self.stage.update_camera_intrinsics(
+                self.camera_fx_raw * scale, self.camera_cx_raw * scale + pad_x)
 
         m = self.stage.process_frame(canvas, self.latest_obs)
         m.resize_scale = scale

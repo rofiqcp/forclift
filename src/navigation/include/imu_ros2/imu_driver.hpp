@@ -12,7 +12,7 @@ namespace imu_ros2
 class IMUDriver
 {
 public:
-  IMUDriver(std::string port, int baudrate = 115200, double timeout_sec = 0.1);
+  IMUDriver(std::string port, int baudrate = 921600, double timeout_sec = 0.1);
   ~IMUDriver();
 
   bool connect();
@@ -26,7 +26,7 @@ public:
   int baudrate() const noexcept { return baudrate_; }
 
   static std::optional<std::string> detect_imu_port(
-      const std::vector<int> & baudrates = {115200, 9600, 19200, 38400, 57600, 230400});
+      const std::vector<int> & baudrates = {921600, 115200, 230400, 460800, 57600, 38400, 19200, 9600});
   static bool is_port_in_use(const std::string & port);
 
 private:

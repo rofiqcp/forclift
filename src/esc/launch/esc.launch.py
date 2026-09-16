@@ -16,7 +16,7 @@ import yaml
 
 
 def _runtime_dir():
-    ws=os.environ.get("AGV_WS","/home/otomasi2/ros")
+    ws=os.environ.get("AGV_WS") or os.environ.get("AGV_ROOT") or os.path.join(os.path.expanduser("~"),"forclift")
     root=os.environ.get("AGV_RUNTIME_CONFIG_ROOT",os.path.join(ws,"config","runtime"))
     target=os.path.join(os.path.expanduser(root),"esc")
     os.makedirs(target,exist_ok=True)
@@ -65,7 +65,7 @@ def _geometry_overrides():
     Standalone ESC launch remains usable even if navigation is not running.  If
     canonical geometry exists, it overrides duplicated geometry-only YAML fields.
     """
-    ws=os.environ.get("AGV_WS","/home/otomasi2/ros")
+    ws=os.environ.get("AGV_WS") or os.environ.get("AGV_ROOT") or os.path.join(os.path.expanduser("~"),"forclift")
     root=os.environ.get("AGV_RUNTIME_CONFIG_ROOT",os.path.join(ws,"config","runtime"))
     path=os.path.join(os.path.expanduser(root),"navigation","vehicle_geometry.yaml")
     if not os.path.isfile(path):

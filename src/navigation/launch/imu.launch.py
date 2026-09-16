@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Launch the B2imu WT901 IMU driver (master reference).
 
-This matches the supplied master behavior: 115200 baud, 50 Hz,
+This matches the supplied master behavior: 921600 baud, 50 Hz,
 on-board AHRS orientation on /imu/data, using /tmp/agv_devices/imu
 from the USB role resolver.
 """
@@ -37,7 +37,7 @@ def generate_launch_description():
         DeclareLaunchArgument('port',
             default_value='/tmp/agv_devices/imu',
             description='Stable IMU alias from USB role resolver'),
-        DeclareLaunchArgument('baudrate', default_value='115200'),
+        DeclareLaunchArgument('baudrate', default_value='921600'),
         DeclareLaunchArgument('frame_id', default_value='imu_link'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
     ]

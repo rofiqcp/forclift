@@ -55,11 +55,13 @@
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <geometry_msgs/msg/twist_with_covariance_stamped.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rcl_interfaces/msg/parameter.hpp>
 #include <rcl_interfaces/msg/parameter_type.hpp>
+#include <rcl_interfaces/srv/get_parameters.hpp>
 #include <rcl_interfaces/srv/set_parameters_atomically.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -307,6 +309,17 @@ QJsonValue yamlPathValue(YAML::Node node, const QStringList &parts, int index = 
   return yamlPathValue(node[parts[index].toStdString()], parts, index + 1);
 }
 
+QJsonValue currentYamlValue(const QString &fileKey, const QString &yamlPath) {
+  const auto candidates = configCandidates();
+  if (!candidates.contains(fileKey) || yamlPath.trimmed().isEmpty()) return QJsonValue();
+  try {
+    YAML::Node root = YAML::LoadFile(candidates.value(fileKey).toStdString());
+    return yamlPathValue(root, yamlPath.split('.', Qt::SkipEmptyParts));
+  } catch (...) {
+    return QJsonValue();
+  }
+}
+
 bool setYamlValueAtomic(const QString &fileKey, const QString &yamlPath, const QJsonValue &input,
                         QString *message, QJsonValue *savedValue = nullptr) {
   const QMap<QString, QString> candidates = configCandidates();
@@ -442,24 +455,49 @@ std::optional<QString> runtimeRestartPattern(const QString &fileKey) {
   return patterns.value(fileKey);
 }
 
+QVector<qint64> matchingOwnerPids(const QString &pattern) {
+  QVector<qint64> out;
+  QProcess proc;
+  proc.setProcessChannelMode(QProcess::MergedChannels);
+  proc.start(QStringLiteral("pgrep"), {QStringLiteral("-f"), pattern});
+  if (!proc.waitForStarted(800) || !proc.waitForFinished(1800) || proc.exitCode() != 0) return out;
+  const QStringList lines = QString::fromUtf8(proc.readAll()).split('\n', Qt::SkipEmptyParts);
+  for (const QString &line : lines) {
+    bool ok = false;
+    const qint64 pid = line.trimmed().toLongLong(&ok);
+    if (ok && pid > 1) out.push_back(pid);
+  }
+  return out;
+}
+
 bool restartRuntimeOwner(const QString &fileKey, QString *detail) {
   const auto pattern = runtimeRestartPattern(fileKey);
   if (!pattern) return false;
+  const QVector<qint64> oldPids = matchingOwnerPids(*pattern);
+  if (oldPids.isEmpty()) {
+    if (detail) *detail = QStringLiteral("owner process tidak aktif; restart tidak dapat diverifikasi");
+    return false;
+  }
   QProcess proc;
   proc.setProcessChannelMode(QProcess::MergedChannels);
   proc.start(QStringLiteral("pkill"), {QStringLiteral("-TERM"), QStringLiteral("-f"), *pattern});
-  if (!proc.waitForStarted(800) || !proc.waitForFinished(2500)) {
-    if (detail) *detail = QStringLiteral("restart command timeout");
+  if (!proc.waitForStarted(800) || !proc.waitForFinished(2500) || proc.exitCode() != 0) {
+    if (detail) *detail = QStringLiteral("restart command gagal/timeout");
     return false;
   }
-  const int code = proc.exitCode();
-  if (code != 0) {
-    if (detail) *detail = QStringLiteral("owner process tidak aktif; nilai akan dipakai saat start berikutnya");
-    return false;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+  while (std::chrono::steady_clock::now() < deadline) {
+    const QVector<qint64> nowPids = matchingOwnerPids(*pattern);
+    for (qint64 pid : nowPids) {
+      if (!oldPids.contains(pid)) {
+        if (detail) *detail = QStringLiteral("owner process respawn terverifikasi PID baru=%1").arg(pid);
+        return true;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
   }
-  std::this_thread::sleep_for(std::chrono::milliseconds(2300));
-  if (detail) *detail = QStringLiteral("owner process direstart terisolasi");
-  return true;
+  if (detail) *detail = QStringLiteral("owner process tidak respawn dalam 15 s");
+  return false;
 }
 
 std::optional<QString> sha256FileHex(const QString &path) {
@@ -522,7 +560,281 @@ bool runtimeValueMatches(const QJsonValue &value, QString actual) {
   return actual.simplified() == expected;
 }
 
-QJsonObject applyRuntimeParameter(const QString &fileKey, const QString &yamlPath, const QJsonValue &value) {
+QJsonValue parameterValueToJson(const rcl_interfaces::msg::ParameterValue &value) {
+  using rcl_interfaces::msg::ParameterType;
+  switch (value.type) {
+    case ParameterType::PARAMETER_BOOL: return value.bool_value;
+    case ParameterType::PARAMETER_INTEGER: return static_cast<double>(value.integer_value);
+    case ParameterType::PARAMETER_DOUBLE: return value.double_value;
+    case ParameterType::PARAMETER_STRING: return QString::fromStdString(value.string_value);
+    case ParameterType::PARAMETER_BYTE_ARRAY: {
+      QJsonArray out; for (const auto v : value.byte_array_value) out.append(static_cast<int>(v)); return out;
+    }
+    case ParameterType::PARAMETER_BOOL_ARRAY: {
+      QJsonArray out; for (const auto v : value.bool_array_value) out.append(v); return out;
+    }
+    case ParameterType::PARAMETER_INTEGER_ARRAY: {
+      QJsonArray out; for (const auto v : value.integer_array_value) out.append(static_cast<double>(v)); return out;
+    }
+    case ParameterType::PARAMETER_DOUBLE_ARRAY: {
+      QJsonArray out; for (const auto v : value.double_array_value) out.append(v); return out;
+    }
+    case ParameterType::PARAMETER_STRING_ARRAY: {
+      QJsonArray out; for (const auto &v : value.string_array_value) out.append(QString::fromStdString(v)); return out;
+    }
+    default: return QJsonValue();
+  }
+}
+
+bool jsonValueMatches(const QJsonValue &expected, const QJsonValue &actual) {
+  if (expected.isDouble() && actual.isDouble()) {
+    const double a = expected.toDouble(), b = actual.toDouble();
+    return std::isfinite(a) && std::isfinite(b) &&
+           std::abs(a - b) <= std::max(1e-9, std::max(std::abs(a), std::abs(b)) * 1e-9);
+  }
+  if (expected.isArray() && actual.isArray()) {
+    const auto a = expected.toArray(), b = actual.toArray();
+    if (a.size() != b.size()) return false;
+    for (int i = 0; i < a.size(); ++i) if (!jsonValueMatches(a[i], b[i])) return false;
+    return true;
+  }
+  return expected == actual;
+}
+
+bool jsonToParameterValueLike(const QJsonValue &input, std::uint8_t type,
+                              rcl_interfaces::msg::ParameterValue *out, QString *error) {
+  using rcl_interfaces::msg::ParameterType;
+  if (!out) return false;
+  out->type = type;
+  if (type == ParameterType::PARAMETER_BOOL && input.isBool()) { out->bool_value = input.toBool(); return true; }
+  if (type == ParameterType::PARAMETER_INTEGER && input.isDouble()) {
+    const double v = input.toDouble();
+    if (!std::isfinite(v) || std::abs(v - std::round(v)) > 1e-9) {
+      if (error) *error = QStringLiteral("Parameter integer membutuhkan bilangan bulat");
+      return false;
+    }
+    out->integer_value = static_cast<std::int64_t>(std::llround(v)); return true;
+  }
+  if (type == ParameterType::PARAMETER_DOUBLE && input.isDouble()) {
+    const double v = input.toDouble(); if (!std::isfinite(v)) { if (error) *error = "Nilai double tidak finite"; return false; }
+    out->double_value = v; return true;
+  }
+  if (type == ParameterType::PARAMETER_STRING && input.isString()) {
+    out->string_value = input.toString().toStdString(); return true;
+  }
+  if (!input.isArray()) {
+    if (error) *error = QStringLiteral("Tipe nilai GUI tidak sesuai dengan tipe parameter runtime");
+    return false;
+  }
+  const QJsonArray array = input.toArray();
+  if (type == ParameterType::PARAMETER_BYTE_ARRAY) {
+    for (const auto &x : array) { if (!x.isDouble() || x.toDouble() < 0 || x.toDouble() > 255) return false; out->byte_array_value.push_back(static_cast<std::uint8_t>(x.toInt())); }
+    return true;
+  }
+  if (type == ParameterType::PARAMETER_BOOL_ARRAY) {
+    for (const auto &x : array) { if (!x.isBool()) return false; out->bool_array_value.push_back(x.toBool()); } return true;
+  }
+  if (type == ParameterType::PARAMETER_INTEGER_ARRAY) {
+    for (const auto &x : array) { if (!x.isDouble() || std::abs(x.toDouble()-std::round(x.toDouble()))>1e-9) return false; out->integer_array_value.push_back(static_cast<std::int64_t>(std::llround(x.toDouble()))); } return true;
+  }
+  if (type == ParameterType::PARAMETER_DOUBLE_ARRAY) {
+    for (const auto &x : array) { if (!x.isDouble() || !std::isfinite(x.toDouble())) return false; out->double_array_value.push_back(x.toDouble()); } return true;
+  }
+  if (type == ParameterType::PARAMETER_STRING_ARRAY) {
+    for (const auto &x : array) { if (!x.isString()) return false; out->string_array_value.push_back(x.toString().toStdString()); } return true;
+  }
+  if (error) *error = QStringLiteral("Tipe parameter runtime tidak didukung oleh GUI");
+  return false;
+}
+
+bool nodeVisibleFrom(const rclcpp::Node::SharedPtr &node, const QString &fullName) {
+  if (!node) return false;
+  const std::string wanted = fullName.toStdString();
+  for (const auto &name : node->get_node_names()) if (name == wanted) return true;
+  return false;
+}
+
+std::optional<rcl_interfaces::msg::ParameterValue> nativeReadParameter(
+    const rclcpp::Node::SharedPtr &node, const RuntimeParameterTarget &target, QString *detail) {
+  if (!node) { if (detail) *detail = "ROS node GUI tidak tersedia"; return std::nullopt; }
+  const QString serviceName = target.node + QStringLiteral("/get_parameters");
+  auto client = node->create_client<rcl_interfaces::srv::GetParameters>(serviceName.toStdString());
+  if (!client->wait_for_service(2200ms)) {
+    if (detail) *detail = QStringLiteral("Service tidak tersedia: ") + serviceName;
+    return std::nullopt;
+  }
+  QString lastError;
+  for (int attempt = 1; attempt <= 3; ++attempt) {
+    auto request = std::make_shared<rcl_interfaces::srv::GetParameters::Request>();
+    request->names.push_back(target.parameter.toStdString());
+    auto future = client->async_send_request(request);
+    if (future.wait_for(4200ms) == std::future_status::ready) {
+      try {
+        const auto response = future.get();
+        if (response && !response->values.empty()) return response->values.front();
+        lastError = QStringLiteral("Parameter tidak ditemukan pada runtime: ") + target.parameter;
+      } catch (const std::exception &e) {
+        lastError = QStringLiteral("Native get exception: ") + QString::fromUtf8(e.what());
+      }
+    } else {
+      lastError = QStringLiteral("Timeout native get_parameters attempt %1/3: ").arg(attempt) + target.node;
+    }
+    if (attempt < 3) std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  }
+  if (detail) *detail = lastError;
+  return std::nullopt;
+}
+
+QJsonObject applyNav2NativeParameter(const rclcpp::Node::SharedPtr &node,
+                                     const RuntimeParameterTarget &target,
+                                     const QJsonValue &value) {
+  QString detail;
+  const bool visible = nodeVisibleFrom(node, target.node);
+  const auto before = nativeReadParameter(node, target, &detail);
+  if (!before) {
+    // PlannerServer can be intentionally held in the unconfigured lifecycle
+    // state by the autonomous safety gates. In that state its parameter
+    // services may exist in the graph but not service requests promptly. Do
+    // not label this as a failed edit: persist it for the next planner process
+    // start. Other visible Nav2 nodes still report a real reload-required error.
+    const bool plannerDeferred = target.node == QStringLiteral("/planner_server");
+    const bool deferred = !visible || plannerDeferred;
+    const QString msg = plannerDeferred
+        ? QStringLiteral("Planner runtime belum siap merespons parameter; nilai disimpan untuk start planner berikutnya")
+        : detail;
+    return QJsonObject{{"attempted", visible && !plannerDeferred}, {"applied", false}, {"verified", false},
+      {"strategy", "native_parameter_service"}, {"state", deferred ? "NEXT_START" : "RELOAD_REQUIRED"},
+      {"node", target.node}, {"parameter", target.parameter}, {"message", msg}};
+  }
+
+  rcl_interfaces::msg::Parameter parameter;
+  parameter.name = target.parameter.toStdString();
+  QString typeError;
+  if (!jsonToParameterValueLike(value, before->type, &parameter.value, &typeError)) {
+    return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
+      {"strategy", "native_parameter_service"}, {"state", "VERIFY_FAILED"},
+      {"node", target.node}, {"parameter", target.parameter}, {"message", typeError},
+      {"previous_value", parameterValueToJson(*before)}};
+  }
+
+  const QString serviceName = target.node + QStringLiteral("/set_parameters_atomically");
+  auto client = node->create_client<rcl_interfaces::srv::SetParametersAtomically>(serviceName.toStdString());
+  if (!client->wait_for_service(1800ms)) {
+    return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
+      {"strategy", "native_parameter_service"}, {"state", "RELOAD_REQUIRED"},
+      {"node", target.node}, {"parameter", target.parameter},
+      {"previous_value", parameterValueToJson(*before)},
+      {"message", QStringLiteral("Native set service tidak tersedia: ") + serviceName}};
+  }
+  bool setSucceeded = false;
+  QString setError;
+  for (int attempt = 1; attempt <= 2 && !setSucceeded; ++attempt) {
+    auto request = std::make_shared<rcl_interfaces::srv::SetParametersAtomically::Request>();
+    request->parameters.push_back(parameter);
+    auto future = client->async_send_request(request);
+    if (future.wait_for(4500ms) != std::future_status::ready) {
+      setError = QStringLiteral("Timeout native set_parameters_atomically attempt %1/2").arg(attempt);
+    } else {
+      try {
+        const auto response = future.get();
+        if (response && response->result.successful) setSucceeded = true;
+        else setError = QStringLiteral("Nav2 menolak parameter: ") +
+                        (response ? QString::fromStdString(response->result.reason) : QStringLiteral("no response"));
+      } catch (const std::exception &e) {
+        setError = QStringLiteral("Native set exception: ") + QString::fromUtf8(e.what());
+      }
+    }
+    if (!setSucceeded && attempt < 2) std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  }
+  if (!setSucceeded) {
+    return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
+      {"strategy", "native_parameter_service"}, {"state", "RELOAD_REQUIRED"},
+      {"node", target.node}, {"parameter", target.parameter},
+      {"previous_value", parameterValueToJson(*before)},
+      {"message", setError + QStringLiteral("; YAML belum diubah")}};
+  }
+
+  QString readDetail;
+  const auto after = nativeReadParameter(node, target, &readDetail);
+  const QJsonValue actual = after ? parameterValueToJson(*after) : QJsonValue();
+  const bool verified = after.has_value() && jsonValueMatches(value, actual);
+  return QJsonObject{{"attempted", true}, {"applied", verified}, {"verified", verified},
+    {"strategy", "native_parameter_service"}, {"state", verified ? "APPLIED" : "VERIFY_FAILED"},
+    {"node", target.node}, {"parameter", target.parameter},
+    {"previous_value", parameterValueToJson(*before)}, {"actual_value", actual},
+    {"message", verified ? "Parameter Nav2 diterapkan via native ROS2 service dan read-back terverifikasi" :
+                            QStringLiteral("Native set diterima tetapi read-back gagal: ") + readDetail}};
+}
+
+bool nav2PlannerOwnedTarget(const RuntimeParameterTarget &target) {
+  // SmacPlannerHybrid and Costmap2D expose native parameter callbacks while
+  // configured/active. Prefer verified hot-apply; the restart helper remains
+  // available only as an explicit fallback, never as the default SAVE path.
+  Q_UNUSED(target);
+  return false;
+}
+
+QString compactJsonValue(const QJsonValue &value) {
+  QJsonArray wrapped;
+  wrapped.append(value);
+  QByteArray bytes = QJsonDocument(wrapped).toJson(QJsonDocument::Compact);
+  if (bytes.size() >= 2 && bytes.front() == '[' && bytes.back() == ']')
+    bytes = bytes.mid(1, bytes.size() - 2);
+  return QString::fromUtf8(bytes);
+}
+
+QJsonObject applyPlannerReloadVerified(const RuntimeParameterTarget &target, const QJsonValue &value) {
+  const QString helper = QStringLiteral("/home/otomasi2/ros/src/navigation/scripts/nav2_param_reload_apply.py");
+  if (!QFileInfo::exists(helper)) {
+    return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
+      {"strategy", "planner_restart_configure_verify"}, {"state", "HELPER_MISSING"},
+      {"node", target.node}, {"parameter", target.parameter},
+      {"message", QStringLiteral("Helper reload Nav2 tidak ditemukan: ") + helper}};
+  }
+  QProcess proc;
+  proc.setProcessChannelMode(QProcess::SeparateChannels);
+  proc.start(QStringLiteral("/usr/bin/python3"), {helper,
+    QStringLiteral("--target-node"), target.node,
+    QStringLiteral("--parameter"), target.parameter,
+    QStringLiteral("--expected-json"), compactJsonValue(value)});
+  if (!proc.waitForStarted(1500)) {
+    return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
+      {"strategy", "planner_restart_configure_verify"}, {"state", "HELPER_START_FAILED"},
+      {"node", target.node}, {"parameter", target.parameter},
+      {"message", "Gagal menjalankan helper reload planner"}};
+  }
+  if (!proc.waitForFinished(115000)) {
+    proc.kill(); proc.waitForFinished(1000);
+    return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
+      {"strategy", "planner_restart_configure_verify"}, {"state", "HELPER_TIMEOUT"},
+      {"node", target.node}, {"parameter", target.parameter},
+      {"message", "Timeout reload/configure/verify planner; transaksi akan di-rollback"}};
+  }
+  const QByteArray stdoutBytes = proc.readAllStandardOutput().trimmed();
+  const QString stderrText = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+  const QList<QByteArray> lines = stdoutBytes.split('\n');
+  QJsonObject result;
+  for (int i = lines.size() - 1; i >= 0; --i) {
+    QJsonParseError error{};
+    const QJsonDocument doc = QJsonDocument::fromJson(lines[i].trimmed(), &error);
+    if (error.error == QJsonParseError::NoError && doc.isObject()) { result = doc.object(); break; }
+  }
+  if (result.isEmpty()) {
+    return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
+      {"strategy", "planner_restart_configure_verify"}, {"state", "HELPER_INVALID_RESPONSE"},
+      {"node", target.node}, {"parameter", target.parameter}, {"stderr", stderrText},
+      {"message", "Helper reload planner tidak memberikan JSON hasil verifikasi"}};
+  }
+  result["attempted"] = true;
+  result["applied"] = result.value("verified").toBool(false);
+  result["node"] = target.node;
+  result["parameter"] = target.parameter;
+  if (!stderrText.isEmpty()) result["stderr"] = stderrText;
+  return result;
+}
+
+QJsonObject applyRuntimeParameter(const QString &fileKey, const QString &yamlPath, const QJsonValue &value,
+                                  const rclcpp::Node::SharedPtr &rosNode = nullptr) {
   // SLAM parameters are intentionally applied on the next mapping start. Restarting
   // slam_toolbox inside an active mapping session would destroy the current pose graph.
   if (fileKey == QStringLiteral("slam")) {
@@ -549,6 +861,15 @@ QJsonObject applyRuntimeParameter(const QString &fileKey, const QString &yamlPat
   }
 
   const auto target = runtimeParameterTarget(fileKey, yamlPath);
+
+  // EKF and autonomy-health parameters are backed by live ROS2 parameter
+  // services. Never kill these owners from the tuning GUI: EKF/health are not
+  // launch-respawned in the current stack. Apply atomically and read back.
+  if ((fileKey == QStringLiteral("ekf") || fileKey == QStringLiteral("navigation_core")) &&
+      target && rosNode) {
+    return applyNav2NativeParameter(rosNode, *target, value);
+  }
+
   const auto restartPattern = runtimeRestartPattern(fileKey);
   if (!target && restartPattern) {
     QString restartDetail;
@@ -569,6 +890,26 @@ QJsonObject applyRuntimeParameter(const QString &fileKey, const QString &yamlPat
     if (!restarted) return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
       {"strategy", "node_restart"}, {"state", "NEXT_START"}, {"node", target->node},
       {"parameter", target->parameter}, {"message", restartDetail}};
+    if ((fileKey == QStringLiteral("lidar") || fileKey == QStringLiteral("imu")) && rosNode) {
+      // A new driver PID appears before its ROS parameter services are ready.
+      // Give the respawned owner time to initialise, then retry native read-back.
+      std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+      QString readDetail;
+      std::optional<rcl_interfaces::msg::ParameterValue> actualNative;
+      for (int attempt = 0; attempt < 4 && !actualNative; ++attempt) {
+        actualNative = nativeReadParameter(rosNode, *target, &readDetail);
+        if (!actualNative && attempt < 3)
+          std::this_thread::sleep_for(std::chrono::milliseconds(700));
+      }
+      const QJsonValue actual = actualNative ? parameterValueToJson(*actualNative) : QJsonValue();
+      const bool verified = actualNative.has_value() && jsonValueMatches(value, actual);
+      const QString sensorName = fileKey == QStringLiteral("lidar") ? QStringLiteral("LiDAR") : QStringLiteral("IMU");
+      return QJsonObject{{"attempted", true}, {"applied", verified}, {"verified", verified},
+        {"strategy", "sensor_restart_native_verify"}, {"state", verified ? "APPLIED_RESTART" : "VERIFY_FAILED"},
+        {"node", target->node}, {"parameter", target->parameter}, {"actual_value", actual},
+        {"message", verified ? restartDetail + QStringLiteral("; parameter ") + sensorName + QStringLiteral(" read-back cocok") :
+                                restartDetail + QStringLiteral("; read-back ") + sensorName + QStringLiteral(" gagal: ") + readDetail}};
+    }
     const auto actual = readRuntimeParameter(*target);
     const bool verified = actual.has_value() && runtimeValueMatches(value, *actual);
     return QJsonObject{{"attempted", true}, {"applied", verified}, {"verified", verified},
@@ -579,8 +920,14 @@ QJsonObject applyRuntimeParameter(const QString &fileKey, const QString &yamlPat
                               "Node sudah direstart tetapi runtime read-back belum sama; jangan anggap nilai aktif"}};
   }
 
-  // Nav2/AMCL/costmap use their native dynamic parameter handlers. Bypass the ROS
-  // daemon (which can be stale on the loaded Jetson), then always read back.
+  // Navigation-only path: use the already-running GUI ROS node and native
+  // parameter services. Avoid short-lived `ros2 param` CLI discovery on Jetson.
+  if (fileKey == QStringLiteral("nav2") && rosNode) {
+    return applyNav2NativeParameter(rosNode, *target, value);
+  }
+
+  // Legacy path is retained for non-navigation owners so working perception/
+  // steering behavior is not changed by this navigation-only fix.
   QProcess proc;
   proc.setProcessChannelMode(QProcess::MergedChannels);
   proc.start(QStringLiteral("ros2"), {QStringLiteral("param"), QStringLiteral("set"),
@@ -752,12 +1099,24 @@ class WebRosBridge {
     port_ = static_cast<int>(configuredPort);
     readOnly_ = node_->declare_parameter<bool>("read_only", false);
     cameraJpegFps_ = std::clamp(node_->declare_parameter<double>("camera_jpeg_fps", 5.0), 0.5, 12.0);
+    // 8-direction calibration 2026-09-09. /imu/mag is already hard/soft-iron corrected by imu_node.
+    magHeadingOffsetRad_ = node_->declare_parameter<double>("mag_heading_offset_rad", 0.013525733461806364);
+    magHeadingSign_ = node_->declare_parameter<double>("mag_heading_sign", 1.0) >= 0.0 ? 1.0 : -1.0;
+    magHeadingRmseDeg_ = node_->declare_parameter<double>("mag_heading_validation_rmse_deg", 3.0407979290635105);
     setupRos();
     executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>(rclcpp::ExecutorOptions(), 2);
     executor_->add_node(node_);
     thread_ = std::thread([this]() {
       while (rclcpp::ok() && !stop_.load()) executor_->spin_once(100ms);
     });
+    // Parameter transactions use a dedicated ROS node/executor so camera, map,
+    // scan, costmap and SSE telemetry callbacks cannot starve Nav2 read-back.
+    rclcpp::NodeOptions parameterOptions;
+    parameterOptions.use_global_arguments(false);
+    parameterNode_ = std::make_shared<rclcpp::Node>("agv_web_gui_parameter_client", parameterOptions);
+    parameterExecutor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+    parameterExecutor_->add_node(parameterNode_);
+    parameterThread_ = std::thread([this]() { parameterExecutor_->spin(); });
     update("server", QJsonObject{{"ros", true}, {"read_only", readOnly_}, {"port", port_},
                                   {"bind_address", bindAddress_}, {"started_at_ms", nowMs()}});
   }
@@ -765,13 +1124,18 @@ class WebRosBridge {
   ~WebRosBridge() {
     stop_.store(true);
     if (executor_) executor_->cancel();
+    if (parameterExecutor_) parameterExecutor_->cancel();
     if (thread_.joinable()) thread_.join();
+    if (parameterThread_.joinable()) parameterThread_.join();
     if (executor_ && node_) executor_->remove_node(node_);
+    if (parameterExecutor_ && parameterNode_) parameterExecutor_->remove_node(parameterNode_);
   }
 
   QString bindAddress() const { return bindAddress_; }
   int port() const { return port_; }
   bool readOnly() const { return readOnly_; }
+  rclcpp::Node::SharedPtr rosNode() const { return node_; }
+  rclcpp::Node::SharedPtr parameterNode() const { return parameterNode_; }
 
   QJsonObject snapshot() const {
     std::lock_guard<std::mutex> lock(stateMutex_);
@@ -976,11 +1340,17 @@ class WebRosBridge {
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<rclcpp::executors::MultiThreadedExecutor> executor_;
   std::thread thread_;
+  rclcpp::Node::SharedPtr parameterNode_;
+  std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> parameterExecutor_;
+  std::thread parameterThread_;
   std::atomic_bool stop_{false};
   QString bindAddress_;
   int port_{5005};
   bool readOnly_{false};
   double cameraJpegFps_{5.0};
+  double magHeadingOffsetRad_{0.0};
+  double magHeadingSign_{1.0};
+  double magHeadingRmseDeg_{0.0};
   mutable std::mutex stateMutex_;
   QJsonObject state_;
   QJsonObject updated_;
@@ -1029,8 +1399,110 @@ class WebRosBridge {
     const auto latchedQos = rclcpp::QoS(1).reliable().transient_local();
     const auto sensorQos = rclcpp::QoS(rclcpp::KeepLast(3)).best_effort();
 
+    // Perception obstacle-corridor geometry. The footprint comes from the same
+    // vehicle_geometry.yaml authority used to synchronize URDF/Nav2. Speed is
+    // intentionally NOT used here: this is a static geometry/measurement test
+    // until measured ESC odometry vx is available.
+    double obstacleHalfLengthM = 0.65;
+    double obstacleHalfWidthM = 0.40;
+    constexpr double obstacleLateralMarginM = 0.10;
+    constexpr double obstacleFrontMarginM = 0.05;
+    constexpr double obstacleTestHorizonM = 5.0;
+    constexpr int obstacleMinClusterHits = 2;
+    QString obstacleGeometrySource = QStringLiteral("vehicle_geometry.yaml default");
+    try {
+      const QString geometryPath = configCandidates().value(QStringLiteral("vehicle"));
+      if (!geometryPath.isEmpty() && QFileInfo::exists(geometryPath)) {
+        const YAML::Node root = YAML::LoadFile(geometryPath.toStdString());
+        const YAML::Node vehicle = root["vehicle"];
+        if (vehicle && vehicle["footprint_half_length_m"])
+          obstacleHalfLengthM = vehicle["footprint_half_length_m"].as<double>();
+        if (vehicle && vehicle["footprint_half_width_m"])
+          obstacleHalfWidthM = vehicle["footprint_half_width_m"].as<double>();
+        obstacleGeometrySource = geometryPath;
+      }
+    } catch (const std::exception &e) {
+      RCLCPP_WARN(node_->get_logger(), "Obstacle corridor geometry fallback: %s", e.what());
+    }
+    const double obstacleCorridorHalfWidthM = obstacleHalfWidthM + obstacleLateralMarginM;
+    const double obstacleFrontBoundaryM = obstacleHalfLengthM + obstacleFrontMarginM;
+
+    // Lightweight static/dynamic behavior classifier. Geometry stays LiDAR-first:
+    // a fresh on-path person semantic makes the blocking return DYNAMIC, while a
+    // spatially stable corridor cluster becomes STATIC (box/object). No extra CNN
+    // is added for cardboard boxes, keeping GPU/RAM load bounded.
+    struct CorridorBehaviorState {
+      std::mutex mutex;
+      bool anchorValid{false};
+      double anchorX{0.0};
+      double anchorY{0.0};
+      double stableSinceMs{0.0};
+      int stableScans{0};
+    };
+    const auto corridorBehaviorState = std::make_shared<CorridorBehaviorState>();
+    const auto lastDynamicPersonOnPathMs = std::make_shared<std::atomic<double>>(0.0);
+    constexpr double staticPositionToleranceM = 0.22;
+    constexpr double staticPersistenceSec = 1.50;
+    constexpr int staticMinStableScans = 5;
+    constexpr double dynamicPersonFreshSec = 1.60;
+
+    RCLCPP_INFO(node_->get_logger(),
+      "Obstacle corridor TEST geometry: footprint %.2fx%.2f m, corridor width %.2f m, front boundary %.2f m",
+      2.0 * obstacleHalfLengthM, 2.0 * obstacleHalfWidthM,
+      2.0 * obstacleCorridorHalfWidthM, obstacleFrontBoundaryM);
+
+    // Dedicated BAB 4.1 raw-stream timing.  Keep this independent from the
+    // operational navigation telemetry so raw acquisition never changes the
+    // /scan_nav or /imu/data paths used by SLAM/AMCL/EKF/Nav2.
+    struct RawTimingState {
+      std::mutex mutex;
+      double previousStampSec{std::numeric_limits<double>::quiet_NaN()};
+      std::deque<double> periodsSec;
+      std::uint64_t messageCount{0};
+    };
+    const auto rawTimingFields = [](const std::shared_ptr<RawTimingState> &state, const auto &stamp) {
+      QJsonObject out;
+      const double stampSec = double(stamp.sec) + double(stamp.nanosec) * 1e-9;
+      const double wallSec = std::chrono::duration<double>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      double periodSec = std::numeric_limits<double>::quiet_NaN();
+      double rateHz = std::numeric_limits<double>::quiet_NaN();
+      double jitterMs = std::numeric_limits<double>::quiet_NaN();
+      std::uint64_t count = 0;
+      {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (std::isfinite(state->previousStampSec) && stampSec > state->previousStampSec) {
+          periodSec = stampSec - state->previousStampSec;
+          if (periodSec > 0.001 && periodSec < 5.0) {
+            state->periodsSec.push_back(periodSec);
+            while (state->periodsSec.size() > 120U) state->periodsSec.pop_front();
+          }
+        }
+        state->previousStampSec = stampSec;
+        ++state->messageCount;
+        count = state->messageCount;
+        if (!state->periodsSec.empty()) {
+          const double mean = std::accumulate(state->periodsSec.begin(), state->periodsSec.end(), 0.0) /
+                              static_cast<double>(state->periodsSec.size());
+          if (mean > 0.0) rateHz = 1.0 / mean;
+          double sumSq = 0.0;
+          for (double value : state->periodsSec) sumSq += (value - mean) * (value - mean);
+          jitterMs = 1000.0 * std::sqrt(sumSq / static_cast<double>(state->periodsSec.size()));
+        }
+      }
+      out["rate_hz"] = std::isfinite(rateHz) ? QJsonValue(rateHz) : QJsonValue();
+      out["period_ms"] = std::isfinite(periodSec) ? QJsonValue(periodSec * 1000.0) : QJsonValue();
+      out["timestamp_jitter_ms"] = std::isfinite(jitterMs) ? QJsonValue(jitterMs) : QJsonValue();
+      out["latency_ms"] = stampSec > 0.0 ? QJsonValue((wallSec - stampSec) * 1000.0) : QJsonValue();
+      out["message_count"] = static_cast<double>(count);
+      out["measurement_stamp_sec"] = stampSec;
+      return out;
+    };
+
     const std::vector<std::pair<const char *, const char *>> bools = {
         {"/gnss/connected", "connected.gnss"}, {"/imu/connected", "connected.imu"},
+        {"/winch/connected", "connected.winch"},
+        {"/winch/top_limit", "winch.top_limit"}, {"/winch/bottom_limit", "winch.bottom_limit"},
         {"/perception/camera_connected", "connected.camera"}, {"/esc/ready", "connected.esc_ready"},
         {"/esc/armed", "connected.esc_armed"}, {"/esc/feedback_valid", "connected.esc_feedback"},
         {"/esc/drive/connected", "connected.esc_drive"}, {"/esc/steer/connected", "connected.esc_steer"},
@@ -1085,6 +1557,7 @@ class WebRosBridge {
         {"/imu/status", "imu_driver_status"}, {"/lidar/status", "lidar_driver_status"},
         {"/lidar/safety_health", "lidar_safety_health"},
         {"/camera/color/status", "camera_status"},
+        {"/winch/port", "winch.port"}, {"/winch/state", "winch.state"}, {"/winch/raw", "winch.raw"},
         {"/obstacle_detection/status", "yolo_status"},
         {"/navigation/planner_status", "planner_status"},
         {"/mapping/map_stats", "mapping_stats"}};
@@ -1173,8 +1646,76 @@ class WebRosBridge {
       update("connected.imu", true);
     });
 
+    // BAB 4.1 raw IMU channel: decoded engineering units BEFORE bias /
+    // hard-soft-iron calibration.  Do not feed this channel into navigation.
+    const auto rawImuTiming = std::make_shared<RawTimingState>();
+    subscribe<sensor_msgs::msg::Imu>("/imu/raw/data", sensorQos,
+        [this, rawImuTiming, rawTimingFields](sensor_msgs::msg::Imu::ConstSharedPtr msg) {
+          const auto &q = msg->orientation;
+          const double sinr = 2 * (q.w * q.x + q.y * q.z);
+          const double cosr = 1 - 2 * (q.x * q.x + q.y * q.y);
+          const double roll = std::atan2(sinr, cosr);
+          const double sinp = 2 * (q.w * q.y - q.z * q.x);
+          const double pitch = std::abs(sinp) >= 1 ? std::copysign(kPi / 2, sinp) : std::asin(sinp);
+          QJsonObject raw{{"roll_rad", roll}, {"pitch_rad", pitch},
+                          {"yaw_rad", yawFromQuat(q.x, q.y, q.z, q.w)},
+                          {"qx", q.x}, {"qy", q.y}, {"qz", q.z}, {"qw", q.w},
+                          {"gx", msg->angular_velocity.x}, {"gy", msg->angular_velocity.y}, {"gz", msg->angular_velocity.z},
+                          {"ax", msg->linear_acceleration.x}, {"ay", msg->linear_acceleration.y}, {"az", msg->linear_acceleration.z},
+                          {"frame_id", QString::fromStdString(msg->header.frame_id)},
+                          {"publisher_count", static_cast<double>(node_->count_publishers("/imu/raw/data"))},
+                          {"source_topic", "/imu/raw/data"}, {"raw_ros_level", true}};
+          const QJsonObject timing = rawTimingFields(rawImuTiming, msg->header.stamp);
+          for (auto it = timing.constBegin(); it != timing.constEnd(); ++it) raw[it.key()] = it.value();
+          update("imu_raw", raw);
+        });
+
+    const auto rawImuEulerTiming = std::make_shared<RawTimingState>();
+    subscribe<geometry_msgs::msg::Vector3Stamped>("/imu/raw/euler", sensorQos,
+        [this, rawImuEulerTiming, rawTimingFields](geometry_msgs::msg::Vector3Stamped::ConstSharedPtr msg) {
+          QJsonObject raw{{"roll_rad", msg->vector.x}, {"pitch_rad", msg->vector.y}, {"yaw_rad", msg->vector.z},
+                          {"frame_id", QString::fromStdString(msg->header.frame_id)},
+                          {"publisher_count", static_cast<double>(node_->count_publishers("/imu/raw/euler"))},
+                          {"source_topic", "/imu/raw/euler"}, {"raw_ros_level", true}};
+          const QJsonObject timing = rawTimingFields(rawImuEulerTiming, msg->header.stamp);
+          for (auto it = timing.constBegin(); it != timing.constEnd(); ++it) raw[it.key()] = it.value();
+          update("imu_raw_euler", raw);
+        });
+
+    const auto rawImuMagTiming = std::make_shared<RawTimingState>();
+    subscribe<geometry_msgs::msg::Vector3Stamped>("/imu/raw/mag", sensorQos,
+        [this, rawImuMagTiming, rawTimingFields](geometry_msgs::msg::Vector3Stamped::ConstSharedPtr msg) {
+          QJsonObject raw{{"mx", msg->vector.x}, {"my", msg->vector.y}, {"mz", msg->vector.z},
+                          {"frame_id", QString::fromStdString(msg->header.frame_id)},
+                          {"publisher_count", static_cast<double>(node_->count_publishers("/imu/raw/mag"))},
+                          {"source_topic", "/imu/raw/mag"}, {"raw_ros_level", true}};
+          const QJsonObject timing = rawTimingFields(rawImuMagTiming, msg->header.stamp);
+          for (auto it = timing.constBegin(); it != timing.constEnd(); ++it) raw[it.key()] = it.value();
+          update("imu_raw_mag", raw);
+        });
+
+    // /imu/mag is already calibrated by imu_node. Compute compass heading only once here.
+    subscribe<geometry_msgs::msg::Vector3Stamped>(
+        "/imu/mag", sensorQos, [this](geometry_msgs::msg::Vector3Stamped::ConstSharedPtr msg) {
+          const double mx = msg->vector.x, my = msg->vector.y, mz = msg->vector.z;
+          const double field = std::sqrt(mx * mx + my * my + mz * mz);
+          double heading = magHeadingSign_ * std::atan2(my, mx) + magHeadingOffsetRad_;
+          heading = std::fmod(heading, 2.0 * kPi);
+          if (heading < 0.0) heading += 2.0 * kPi;
+          const double signedHeading = heading > kPi ? heading - 2.0 * kPi : heading;
+          update("imu_mag", QJsonObject{{"mx_t", mx}, {"my_t", my}, {"mz_t", mz}, {"field_t", field},
+              {"heading_compass_rad", heading}, {"heading_signed_rad", signedHeading},
+              {"heading_compass_deg", heading * 180.0 / kPi}, {"heading_offset_rad", magHeadingOffsetRad_},
+              {"heading_offset_deg", magHeadingOffsetRad_ * 180.0 / kPi}, {"heading_sign", magHeadingSign_},
+              {"validation_rmse_deg", magHeadingRmseDeg_}, {"calibrated", true},
+              {"source", "/imu/mag (hard/soft-iron corrected)"},
+              {"measurement_stamp_sec", double(msg->header.stamp.sec) + msg->header.stamp.nanosec * 1e-9}});
+        });
+
     subscribe<sensor_msgs::msg::LaserScan>("/scan_nav", sensorQos,
-        [this](sensor_msgs::msg::LaserScan::ConstSharedPtr msg) {
+        [this, obstacleHalfLengthM, obstacleHalfWidthM, obstacleCorridorHalfWidthM,
+         obstacleFrontBoundaryM, obstacleGeometrySource, corridorBehaviorState,
+         lastDynamicPersonOnPathMs](sensor_msgs::msg::LaserScan::ConstSharedPtr msg) {
           double hz = 0.0;
           {
             // The driver stamps scan_time from consecutive physical revolutions.
@@ -1226,6 +1767,160 @@ class WebRosBridge {
           }
           const double total = static_cast<double>(msg->ranges.size());
           const double validPct = total > 0.0 ? 100.0 * static_cast<double>(valid) / total : 0.0;
+
+          // Lightweight LaserScan geometry for the Navigation Workspace only.
+          // Keep at most ~90 points so the live web stream stays cheap on the
+          // Jetson.  Coordinates remain in lidar_link; the frontend applies the
+          // verified static base_footprint->lidar_link transform and AMCL pose.
+          // Static obstacle-in-path test in base_footprint coordinates.
+          // base_footprint +X is forward and +Y is left. Ignore returns inside
+          // the robot envelope, then test the URDF/Nav2-width corridor ahead.
+          constexpr double baseToLidarX = 0.350;
+          constexpr double baseToLidarY = 0.0;
+          constexpr double baseToLidarYaw = 0.0;
+          std::size_t corridorHitCount = 0;
+          int currentClusterHits = 0;
+          int maxClusterHits = 0;
+          double nearestClearanceM = std::numeric_limits<double>::infinity();
+          double nearestRangeM = std::numeric_limits<double>::infinity();
+          double nearestBaseX = std::numeric_limits<double>::quiet_NaN();
+          double nearestBaseY = std::numeric_limits<double>::quiet_NaN();
+          for (std::size_t i = 0; i < msg->ranges.size(); ++i) {
+            const double r = msg->ranges[i];
+            if (!std::isfinite(r) || r < msg->range_min || r > msg->range_max) {
+              currentClusterHits = 0;
+              continue;
+            }
+            const double angle = static_cast<double>(msg->angle_min) +
+                                 static_cast<double>(i) * static_cast<double>(msg->angle_increment);
+            const double lx = r * std::cos(angle);
+            const double ly = r * std::sin(angle);
+            const double bx = baseToLidarX + lx;
+            const double by = baseToLidarY + ly;
+            const bool inCorridor = bx >= obstacleFrontBoundaryM &&
+                                    bx <= obstacleFrontBoundaryM + obstacleTestHorizonM &&
+                                    std::abs(by) <= obstacleCorridorHalfWidthM;
+            if (!inCorridor) {
+              currentClusterHits = 0;
+              continue;
+            }
+            ++corridorHitCount;
+            ++currentClusterHits;
+            maxClusterHits = std::max(maxClusterHits, currentClusterHits);
+            const double clearance = bx - obstacleHalfLengthM;
+            if (clearance < nearestClearanceM) {
+              nearestClearanceM = clearance;
+              nearestRangeM = r;
+              nearestBaseX = bx;
+              nearestBaseY = by;
+            }
+          }
+          const bool corridorCandidate = corridorHitCount > 0U;
+          const bool obstacleInPath = maxClusterHits >= obstacleMinClusterHits;
+          const QString corridorStatus = obstacleInPath ? QStringLiteral("OBSTACLE IN PATH")
+              : (corridorCandidate ? QStringLiteral("CANDIDATE") : QStringLiteral("CLEAR"));
+
+          const double behaviorNowMs = nowMs();
+          const double personAgeMs = behaviorNowMs - lastDynamicPersonOnPathMs->load(std::memory_order_relaxed);
+          const bool dynamicPersonOnPath = obstacleInPath && personAgeMs >= 0.0 &&
+              personAgeMs <= dynamicPersonFreshSec * 1000.0;
+          bool staticPersistent = false;
+          double staticDurationSec = 0.0;
+          int staticStableScans = 0;
+          {
+            std::lock_guard<std::mutex> behaviorLock(corridorBehaviorState->mutex);
+            if (obstacleInPath && std::isfinite(nearestBaseX) && std::isfinite(nearestBaseY)) {
+              const double shift = corridorBehaviorState->anchorValid
+                  ? std::hypot(nearestBaseX - corridorBehaviorState->anchorX,
+                               nearestBaseY - corridorBehaviorState->anchorY)
+                  : std::numeric_limits<double>::infinity();
+              if (!corridorBehaviorState->anchorValid || shift > staticPositionToleranceM) {
+                corridorBehaviorState->anchorValid = true;
+                corridorBehaviorState->anchorX = nearestBaseX;
+                corridorBehaviorState->anchorY = nearestBaseY;
+                corridorBehaviorState->stableSinceMs = behaviorNowMs;
+                corridorBehaviorState->stableScans = 1;
+              } else {
+                // Small EMA follows LiDAR noise without allowing a moving obstacle
+                // to accumulate a false static persistence timer.
+                corridorBehaviorState->anchorX = 0.85 * corridorBehaviorState->anchorX + 0.15 * nearestBaseX;
+                corridorBehaviorState->anchorY = 0.85 * corridorBehaviorState->anchorY + 0.15 * nearestBaseY;
+                ++corridorBehaviorState->stableScans;
+              }
+              staticDurationSec = std::max(0.0, (behaviorNowMs - corridorBehaviorState->stableSinceMs) / 1000.0);
+              staticStableScans = corridorBehaviorState->stableScans;
+              staticPersistent = !dynamicPersonOnPath &&
+                  staticDurationSec >= staticPersistenceSec &&
+                  staticStableScans >= staticMinStableScans;
+            } else {
+              corridorBehaviorState->anchorValid = false;
+              corridorBehaviorState->stableSinceMs = 0.0;
+              corridorBehaviorState->stableScans = 0;
+            }
+          }
+
+          QString behaviorClass = QStringLiteral("CLEAR");
+          QString operatorIndicator = QStringLiteral("LINTASAN BEBAS");
+          bool removeRequired = false;
+          bool waitUntilClear = false;
+          if (obstacleInPath && dynamicPersonOnPath) {
+            behaviorClass = QStringLiteral("DYNAMIC_PERSON");
+            operatorIndicator = QStringLiteral("TUNGGU - OBSTACLE DINAMIS");
+            waitUntilClear = true;
+          } else if (obstacleInPath && staticPersistent) {
+            behaviorClass = QStringLiteral("STATIC_BOX_OR_OBJECT");
+            operatorIndicator = QStringLiteral("SEGERA SINGKIRKAN");
+            removeRequired = true;
+          } else if (obstacleInPath) {
+            behaviorClass = QStringLiteral("VERIFYING");
+            operatorIndicator = QStringLiteral("VALIDASI STATIC / DYNAMIC");
+          } else if (corridorCandidate) {
+            behaviorClass = QStringLiteral("CANDIDATE");
+            operatorIndicator = QStringLiteral("PANTAU");
+          }
+
+          update("obstacle_corridor", QJsonObject{
+              {"available", true}, {"status", corridorStatus},
+              {"obstacle_in_path", obstacleInPath}, {"candidate", corridorCandidate},
+              {"hit_count", static_cast<double>(corridorHitCount)},
+              {"max_cluster_hits", maxClusterHits}, {"min_cluster_hits", obstacleMinClusterHits},
+              {"nearest_clearance_m", std::isfinite(nearestClearanceM) ? QJsonValue(nearestClearanceM) : QJsonValue()},
+              {"nearest_lidar_range_m", std::isfinite(nearestRangeM) ? QJsonValue(nearestRangeM) : QJsonValue()},
+              {"nearest_base_x_m", std::isfinite(nearestBaseX) ? QJsonValue(nearestBaseX) : QJsonValue()},
+              {"nearest_base_y_m", std::isfinite(nearestBaseY) ? QJsonValue(nearestBaseY) : QJsonValue()},
+              {"footprint_length_m", 2.0 * obstacleHalfLengthM},
+              {"footprint_width_m", 2.0 * obstacleHalfWidthM},
+              {"front_extent_m", obstacleHalfLengthM},
+              {"corridor_half_width_m", obstacleCorridorHalfWidthM},
+              {"corridor_width_m", 2.0 * obstacleCorridorHalfWidthM},
+              {"lateral_margin_m", obstacleLateralMarginM},
+              {"front_margin_m", obstacleFrontMarginM},
+              {"test_horizon_m", obstacleTestHorizonM},
+              {"dynamic_stopping_enabled", false},
+              {"behavior_class", behaviorClass}, {"operator_indicator", operatorIndicator},
+              {"dynamic_person_on_path", dynamicPersonOnPath},
+              {"static_persistent", staticPersistent}, {"static_duration_s", staticDurationSec},
+              {"static_stable_scans", staticStableScans},
+              {"static_position_tolerance_m", staticPositionToleranceM},
+              {"static_persistence_threshold_s", staticPersistenceSec},
+              {"remove_required", removeRequired}, {"wait_until_clear", waitUntilClear},
+              {"box_policy", QStringLiteral("persistent LiDAR obstacle -> static box/object")},
+              {"geometry_source", obstacleGeometrySource},
+              {"source_topic", QStringLiteral("/scan_nav")},
+              {"measurement_stamp_sec", double(msg->header.stamp.sec) + msg->header.stamp.nanosec * 1e-9}});
+
+          QJsonArray scanPoints;
+          constexpr std::size_t kMaxWebScanPoints = 90;
+          const std::size_t scanStride = std::max<std::size_t>(
+              1, msg->ranges.size() / kMaxWebScanPoints + 1);
+          for (std::size_t i = 0; i < msg->ranges.size(); i += scanStride) {
+            const double r = msg->ranges[i];
+            if (!std::isfinite(r) || r < msg->range_min || r > msg->range_max) continue;
+            const double angle = static_cast<double>(msg->angle_min) +
+                                 static_cast<double>(i) * static_cast<double>(msg->angle_increment);
+            scanPoints.append(QJsonArray{r * std::cos(angle), r * std::sin(angle)});
+          }
+
           update("lidar", QJsonObject{
               {"frame_id", QString::fromStdString(msg->header.frame_id)},
               {"samples", total}, {"valid_samples", static_cast<double>(valid)},
@@ -1236,8 +1931,75 @@ class WebRosBridge {
               {"range_max_observed_m", valid ? maxRange : QJsonValue()},
               {"angle_min_rad", msg->angle_min}, {"angle_max_rad", msg->angle_max},
               {"angle_increment_rad", msg->angle_increment},
+              {"scan_points_lidar", scanPoints},
+              // Verified live TF: base_footprint -> lidar_link = [0.350, 0.000, yaw 0].
+              {"base_to_lidar_x_m", baseToLidarX}, {"base_to_lidar_y_m", baseToLidarY},
+              {"base_to_lidar_yaw_rad", baseToLidarYaw},
               {"measurement_stamp_sec", double(msg->header.stamp.sec) + msg->header.stamp.nanosec * 1e-9}});
           update("connected.lidar", true);
+        });
+
+    // BAB 4.1 raw LiDAR: direct driver LaserScan before navigation/self filtering.
+    // Statistics below are descriptive only; no smoothing/median/outlier filtering
+    // is applied. BAB 4.1.2 uses exactly one raw beam whose reported LaserScan
+    // angle is closest to 0 rad. If that beam is invalid, keep it INVALID; never
+    // substitute a neighboring beam. This affects reporting only, not SLAM/Nav2.
+    const auto rawLidarTiming = std::make_shared<RawTimingState>();
+    subscribe<sensor_msgs::msg::LaserScan>("/scan_safety_raw", sensorQos,
+        [this, rawLidarTiming, rawTimingFields](sensor_msgs::msg::LaserScan::ConstSharedPtr msg) {
+          std::size_t valid = 0;
+          double sum = 0.0;
+          double minRange = std::numeric_limits<double>::infinity();
+          double maxRange = 0.0;
+          for (double r : msg->ranges) {
+            if (!std::isfinite(r) || r < msg->range_min || r > msg->range_max) continue;
+            ++valid; sum += r; minRange = std::min(minRange, r); maxRange = std::max(maxRange, r);
+          }
+          const double total = static_cast<double>(msg->ranges.size());
+          const double validPct = total > 0.0 ? 100.0 * static_cast<double>(valid) / total : 0.0;
+          int sampleIndex = -1;
+          double sampleAngleDeg = std::numeric_limits<double>::quiet_NaN();
+          double sampleRange = std::numeric_limits<double>::quiet_NaN();
+          double sampleIntensity = std::numeric_limits<double>::quiet_NaN();
+          bool sampleValid = false;
+          if (!msg->ranges.empty() && std::abs(msg->angle_increment) > 1e-12) {
+            auto isValidRawBeam = [&](int idx) {
+              if (idx < 0 || idx >= static_cast<int>(msg->ranges.size())) return false;
+              const double r = msg->ranges[static_cast<std::size_t>(idx)];
+              return std::isfinite(r) && r >= msg->range_min && r <= msg->range_max;
+            };
+            const double indexAtZero = (0.0 - static_cast<double>(msg->angle_min)) /
+                                       static_cast<double>(msg->angle_increment);
+            sampleIndex = std::clamp(static_cast<int>(std::lround(indexAtZero)),
+                                     0, static_cast<int>(msg->ranges.size()) - 1);
+            sampleAngleDeg = (msg->angle_min + static_cast<double>(sampleIndex) * msg->angle_increment) * 180.0 / kPi;
+            sampleRange = msg->ranges[static_cast<std::size_t>(sampleIndex)];
+            sampleValid = isValidRawBeam(sampleIndex);
+            if (static_cast<std::size_t>(sampleIndex) < msg->intensities.size())
+              sampleIntensity = msg->intensities[static_cast<std::size_t>(sampleIndex)];
+          }
+          QJsonObject raw{{"frame_id", QString::fromStdString(msg->header.frame_id)},
+                          {"samples", total}, {"beam_count", total},
+                          {"valid_samples", static_cast<double>(valid)}, {"valid_beam_count", static_cast<double>(valid)},
+                          {"valid_ratio_pct", validPct}, {"dropout_pct", 100.0 - validPct},
+                          {"range_center_m", sampleValid ? QJsonValue(sampleRange) : QJsonValue()},
+                          {"sample_angle_deg", std::isfinite(sampleAngleDeg) ? QJsonValue(sampleAngleDeg) : QJsonValue()},
+                          {"sample_range_m", std::isfinite(sampleRange) ? QJsonValue(sampleRange) : QJsonValue()},
+                          {"sample_intensity", std::isfinite(sampleIntensity) ? QJsonValue(sampleIntensity) : QJsonValue()},
+                          {"sample_valid", sampleValid},
+                          {"mean_range_m", valid ? QJsonValue(sum / static_cast<double>(valid)) : QJsonValue()},
+                          {"range_min_observed_m", std::isfinite(minRange) ? QJsonValue(minRange) : QJsonValue()},
+                          {"range_max_observed_m", valid ? QJsonValue(maxRange) : QJsonValue()},
+                          {"angle_min_rad", msg->angle_min}, {"angle_max_rad", msg->angle_max},
+                          {"angle_increment_rad", msg->angle_increment}, {"range_min_m", msg->range_min},
+                          {"range_max_m", msg->range_max}, {"scan_time_s", msg->scan_time},
+                          {"time_increment_s", msg->time_increment},
+                          {"publisher_count", static_cast<double>(node_->count_publishers("/scan_safety_raw"))},
+                          {"source_topic", "/scan_safety_raw"}, {"raw_ros_level", true}};
+          const QJsonObject timing = rawTimingFields(rawLidarTiming, msg->header.stamp);
+          for (auto it = timing.constBegin(); it != timing.constEnd(); ++it) raw[it.key()] = it.value();
+          raw["scan_rate_hz"] = raw.value("rate_hz");
+          update("lidar_raw", raw);
         });
 
     subscribe<sensor_msgs::msg::LaserScan>("/scan_safety", sensorQos,
@@ -1281,9 +2043,9 @@ class WebRosBridge {
     odomSubscribe("/odometry/filtered", "ekf_local");
     odomSubscribe("/odometry/filtered_map", "ekf_global");
 
-    const auto pathSubscribe = [this, sensorQos](const char *topic, const char *channel) {
+    const auto pathSubscribe = [this](const char *topic, const char *channel, const rclcpp::QoS &qos) {
       const QString ch = QString::fromLatin1(channel);
-      subscribe<nav_msgs::msg::Path>(topic, sensorQos, [this, ch](nav_msgs::msg::Path::ConstSharedPtr msg) {
+      subscribe<nav_msgs::msg::Path>(topic, qos, [this, ch](nav_msgs::msg::Path::ConstSharedPtr msg) {
         QJsonArray points;
         double length = 0.0;
         double headingVariation = 0.0;
@@ -1313,11 +2075,17 @@ class WebRosBridge {
                                {"measurement_stamp_sec", double(msg->header.stamp.sec) + msg->header.stamp.nanosec * 1e-9}});
       });
     };
-    pathSubscribe("/smac_plan", "nav_path");
-    pathSubscribe("/plan", "nav_path_legacy");
-    pathSubscribe("/transformed_global_plan", "local_path");
-    pathSubscribe("/controller_server/transformed_global_plan", "local_path_legacy");
-    pathSubscribe("/local_plan", "local_path_legacy");
+    // Global paths are one-shot control products, not high-rate sensor data.
+    // Keep the canonical /smac_plan durable so the web GUI recovers the last
+    // valid path after a web-only restart; /plan and controller paths remain
+    // reliable volatile to match their Nav2 publishers.
+    const auto pathLatchedQos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+    const auto pathReliableQos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
+    pathSubscribe("/smac_plan", "nav_path", pathLatchedQos);
+    pathSubscribe("/plan", "nav_path_legacy", pathReliableQos);
+    pathSubscribe("/transformed_global_plan", "local_path", pathReliableQos);
+    pathSubscribe("/controller_server/transformed_global_plan", "local_path_legacy", pathReliableQos);
+    pathSubscribe("/local_plan", "local_path_legacy", pathReliableQos);
 
     // RViz-compatible MPPI MarkerArray bridge. Telemetry-only: preserves
     // marker semantics without changing MPPI/controller/lifecycle/cmd_vel.
@@ -1420,7 +2188,8 @@ class WebRosBridge {
         {"/esc/kinematic_yaw_rate_rps", "esc_kinematic_yaw_rate"},
         {"/navigation/mppi_closed_loop/velocity_error_mps", "mppi_velocity_error"},
         {"/navigation/mppi_closed_loop/steering_error_rad", "mppi_steering_error"},
-        {"/navigation/mppi_closed_loop/yaw_rate_error_rps", "mppi_yaw_error"}};
+        {"/navigation/mppi_closed_loop/yaw_rate_error_rps", "mppi_yaw_error"},
+        {"/winch/pwm_pct", "winch.pwm_pct"}, {"/winch/servo_deg", "winch.servo_deg"}};
     for (const auto &entry : floats) {
       const QString channel = QString::fromLatin1(entry.second);
       subscribe<std_msgs::msg::Float64>(entry.first, sensorQos, [this, channel](std_msgs::msg::Float64::ConstSharedPtr msg) {
@@ -1481,30 +2250,81 @@ class WebRosBridge {
         [this](std_msgs::msg::String::ConstSharedPtr msg) {
           update("perception_performance", parseJsonOrKv(QString::fromStdString(msg->data)));
         });
+    subscribe<std_msgs::msg::String>("/warehouse_obstacle/performance", sensorQos,
+        [this](std_msgs::msg::String::ConstSharedPtr msg) {
+          update("warehouse_person_performance", parseJsonOrKv(QString::fromStdString(msg->data)));
+        });
     subscribe<yolo_obstacle_detection_ros2::msg::ObstacleArray>("/obstacle_detection/obstacles", sensorQos,
         [this](yolo_obstacle_detection_ros2::msg::ObstacleArray::ConstSharedPtr msg) {
           QJsonArray items;
           double confidenceSum = 0.0;
+          double maxConfidence = -1.0;
           int dangerCount = 0, pathCount = 0;
+          QJsonObject bestDetection, bestPalletDetection;
+          double bestConfidence = -1.0, bestPalletConfidence = -1.0;
           for (const auto &o : msg->obstacles) {
-            QJsonObject item{{"class_id", o.class_id}, {"class_name", QString::fromStdString(o.class_name)},
-                             {"category", QString::fromStdString(o.category)}, {"confidence", o.confidence},
+            const QString className = QString::fromStdString(o.class_name);
+            const QString category = QString::fromStdString(o.category);
+            QJsonObject item{{"class_id", o.class_id}, {"class_name", className},
+                             {"category", category}, {"confidence", o.confidence},
                              {"x1", o.x1}, {"y1", o.y1}, {"x2", o.x2}, {"y2", o.y2},
                              {"center_x", o.center_x}, {"center_y", o.center_y},
                              {"on_path", o.on_path}, {"in_danger_zone", o.in_danger_zone}};
             items.append(item);
             confidenceSum += o.confidence;
+            maxConfidence = std::max(maxConfidence, static_cast<double>(o.confidence));
+            if (o.confidence > bestConfidence) { bestConfidence = o.confidence; bestDetection = item; }
+            const QString cls = className.trimmed().toLower();
+            const QString cat = category.trimmed().toLower();
+            if ((cls == QStringLiteral("pallet") || cat == QStringLiteral("pallet")) && o.confidence > bestPalletConfidence) {
+              bestPalletConfidence = o.confidence; bestPalletDetection = item;
+            }
             if (o.in_danger_zone) ++dangerCount;
             if (o.on_path) ++pathCount;
           }
           const int count = static_cast<int>(msg->obstacles.size());
-          update("raw_detections", QJsonObject{{"count", count}, {"mean_confidence", count ? confidenceSum / count : 0.0},
-                                                {"items", items}, {"at_ms", nowMs()}});
+          QJsonObject raw{{"count", count},
+                          {"dynamic_count", msg->dynamic_count}, {"static_count", msg->static_count},
+                          {"floor_count", msg->floor_count}, {"pallet_count", msg->pallet_count},
+                          {"other_count", msg->other_count}, {"warning_active", msg->warning_active},
+                          {"path_obstacle_count", static_cast<int>(msg->path_obstacles.size())},
+                          {"mean_confidence", count ? confidenceSum / count : 0.0},
+                          {"max_confidence", count ? maxConfidence : 0.0},
+                          {"items", items}, {"at_ms", nowMs()}};
+          if (!bestDetection.isEmpty()) {
+            raw["best_class_name"] = bestDetection.value("class_name"); raw["best_category"] = bestDetection.value("category");
+            raw["best_confidence"] = bestDetection.value("confidence"); raw["best_center_x_px"] = bestDetection.value("center_x"); raw["best_center_y_px"] = bestDetection.value("center_y");
+          }
+          if (!bestPalletDetection.isEmpty()) {
+            raw["pallet_best_class_name"] = bestPalletDetection.value("class_name"); raw["pallet_best_category"] = bestPalletDetection.value("category");
+            raw["pallet_best_confidence"] = bestPalletDetection.value("confidence"); raw["pallet_best_center_x_px"] = bestPalletDetection.value("center_x"); raw["pallet_best_center_y_px"] = bestPalletDetection.value("center_y");
+          }
+          update("raw_detections", raw);
           update("obstacle_metrics", QJsonObject{{"count", count}, {"dynamic", msg->dynamic_count},
                                                   {"static", msg->static_count}, {"floor", msg->floor_count},
                                                   {"pallet", msg->pallet_count}, {"other", msg->other_count},
                                                   {"danger", dangerCount}, {"on_path", pathCount},
                                                   {"warning_active", msg->warning_active}, {"at_ms", nowMs()}});
+        });
+    subscribe<yolo_obstacle_detection_ros2::msg::ObstacleArray>("/warehouse_obstacle/persons", sensorQos,
+        [this, lastDynamicPersonOnPathMs](yolo_obstacle_detection_ros2::msg::ObstacleArray::ConstSharedPtr msg) {
+          QJsonArray items;
+          double confidenceSum = 0.0;
+          bool anyPersonOnPath = false;
+          for (const auto &o : msg->obstacles) {
+            if (QString::fromStdString(o.class_name).trimmed().toLower() != QStringLiteral("person")) continue;
+            items.append(QJsonObject{{"class_id", o.class_id}, {"class_name", "person"},
+                                     {"category", "dynamic"}, {"confidence", o.confidence},
+                                     {"x1", o.x1}, {"y1", o.y1}, {"x2", o.x2}, {"y2", o.y2},
+                                     {"center_x", o.center_x}, {"center_y", o.center_y},
+                                     {"on_path", o.on_path}, {"in_danger_zone", o.in_danger_zone}});
+            confidenceSum += o.confidence;
+            anyPersonOnPath = anyPersonOnPath || o.on_path;
+          }
+          if (anyPersonOnPath) lastDynamicPersonOnPathMs->store(nowMs(), std::memory_order_relaxed);
+          const int count = items.size();
+          update("warehouse_person_detections", QJsonObject{{"count", count}, {"dynamic_count", count},
+              {"mean_confidence", count ? confidenceSum / count : 0.0}, {"items", items}, {"at_ms", nowMs()}});
         });
     subscribe<yolo_obstacle_detection_ros2::msg::AlignmentState>("/fork_alignment/state", rclcpp::QoS(1).reliable().transient_local(),
         [this](yolo_obstacle_detection_ros2::msg::AlignmentState::ConstSharedPtr msg) {
@@ -1719,6 +2539,13 @@ class LocalHttpServer : public QObject {
   double recordingRateHz_{5.0};
   QVector<QMap<QString, QString>> recordingRows_;
 
+  // BAB 4.2.4 recorder follows Mapping 1/2/3 without changing the mapping engine.
+  int loopRecordingSlot_{0};
+  bool loopReferenceValid_{false};
+  double loopReferenceX_{0.0};
+  double loopReferenceY_{0.0};
+  double loopReferenceYaw_{0.0};
+
   void acceptConnections() {
     while (server_.hasPendingConnections()) {
       QTcpSocket *socket = server_.nextPendingConnection();
@@ -1825,13 +2652,135 @@ class LocalHttpServer : public QObject {
       const QString fileKey = json.value("file_key").toString();
       const QString yamlPath = json.value("path").toString();
       QJsonValue saved;
-      ok = setYamlValueAtomic(fileKey, yamlPath, json.value("value"), &message, &saved);
       QJsonObject runtimeApply;
-      if (ok) {
-        runtimeApply = applyRuntimeParameter(fileKey, yamlPath, saved);
-        const QString runtimeMessage = runtimeApply.value("message").toString();
-        if (!runtimeMessage.isEmpty()) message += QStringLiteral(" • ") + runtimeMessage;
+      const QJsonValue requestedValue = json.value("value");
+      if (fileKey == QStringLiteral("nav2") || fileKey == QStringLiteral("ekf") ||
+          fileKey == QStringLiteral("navigation_core")) {
+        const auto target = runtimeParameterTarget(fileKey, yamlPath);
+        if (target && nav2PlannerOwnedTarget(*target)) {
+          // Smac planner and global-costmap parameters are declared during the
+          // planner lifecycle CONFIGURE transition. Persist first, respawn only
+          // planner_server, configure temporarily, verify the real parameter,
+          // then restore its safe lifecycle state. Roll back both disk and owner
+          // runtime if any step fails.
+          const QJsonValue previousYaml = currentYamlValue(fileKey, yamlPath);
+          ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
+          if (ok) {
+            runtimeApply = applyPlannerReloadVerified(*target, requestedValue);
+            if (!runtimeApply.value("verified").toBool(false)) {
+              const QString failedState = runtimeApply.value("state").toString();
+              QString rollbackMessage;
+              QJsonValue rollbackSaved;
+              QJsonObject rollbackApply;
+              const bool canRollback = !previousYaml.isUndefined() && !previousYaml.isNull();
+              const bool yamlRolledBack = canRollback &&
+                setYamlValueAtomic(fileKey, yamlPath, previousYaml, &rollbackMessage, &rollbackSaved);
+              if (yamlRolledBack) {
+                saved = rollbackSaved;
+                if (failedState == QStringLiteral("BUSY_ACTIVE_NAV")) {
+                  rollbackApply = QJsonObject{{"verified", true}, {"applied", false},
+                    {"state", "YAML_ROLLED_BACK_RUNTIME_UNCHANGED"},
+                    {"message", "Planner ACTIVE tidak direstart; YAML dikembalikan ke nilai sebelumnya"}};
+                } else {
+                  rollbackApply = applyPlannerReloadVerified(*target, previousYaml);
+                }
+              }
+              const bool rollbackVerified = yamlRolledBack &&
+                rollbackApply.value("verified").toBool(false);
+              runtimeApply["rollback"] = rollbackApply;
+              runtimeApply["applied"] = false;
+              runtimeApply["verified"] = false;
+              runtimeApply["state"] = rollbackVerified ? "FAILED_ROLLED_BACK" : "ROLLBACK_FAILED";
+              message = QStringLiteral("Parameter planner/global-costmap belum diterapkan; ") +
+                        runtimeApply.value("message").toString();
+              if (yamlRolledBack) message += QStringLiteral(" • YAML dikembalikan: ") + rollbackMessage;
+              ok = false;
+            }
+          } else {
+            runtimeApply = QJsonObject{{"attempted", false}, {"applied", false}, {"verified", false},
+              {"strategy", "planner_restart_configure_verify"}, {"state", "YAML_SAVE_FAILED"},
+              {"node", target->node}, {"parameter", target->parameter},
+              {"message", "YAML gagal disimpan; planner tidak direstart"}};
+          }
+        } else {
+          const bool navigationCoreNextStartOnly =
+            fileKey == QStringLiteral("navigation_core") && yamlPath.endsWith(QStringLiteral(".publish_rate_hz"));
+          if (navigationCoreNextStartOnly) {
+            ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
+            runtimeApply = QJsonObject{{"attempted", false}, {"applied", false}, {"verified", false},
+              {"strategy", "next_start"}, {"state", "NEXT_START"},
+              {"message", "YAML tersimpan; publish-rate health manager diterapkan pada start manager berikutnya"}};
+          } else {
+            // AMCL, planner/controller/costmap, EKF and live health parameters:
+            // apply to runtime first and require read-back before persisting.
+            runtimeApply = applyRuntimeParameter(fileKey, yamlPath, requestedValue, bridge_->parameterNode());
+            const bool runtimeVerified = runtimeApply.value("verified").toBool(false);
+            if (runtimeVerified) {
+              ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
+              if (!ok) {
+                const QJsonValue previous = runtimeApply.value("previous_value");
+                QJsonObject rollback;
+                if (!previous.isUndefined() && !previous.isNull())
+                  rollback = applyRuntimeParameter(fileKey, yamlPath, previous, bridge_->parameterNode());
+                runtimeApply["rollback"] = rollback;
+                runtimeApply["applied"] = false;
+                runtimeApply["verified"] = false;
+                runtimeApply["state"] = rollback.value("verified").toBool(false) ?
+                  "YAML_SAVE_FAILED_ROLLED_BACK" : "ROLLBACK_FAILED";
+              }
+            } else if (fileKey == QStringLiteral("navigation_core")) {
+              // Health-manager parameter service can be busy polling lifecycle
+              // nodes under high CPU load. Persist safely without killing it.
+              ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
+              if (ok) {
+                runtimeApply["state"] = "NEXT_START";
+                runtimeApply["applied"] = false;
+                runtimeApply["verified"] = false;
+                runtimeApply["message"] = QStringLiteral("Runtime health manager sedang sibuk; YAML tersimpan untuk start berikutnya");
+              }
+            } else {
+              ok = false;
+              message = QStringLiteral("Runtime tidak berubah; YAML dipertahankan. ") +
+                        runtimeApply.value("message").toString();
+            }
+          }
+        }
+      } else if (fileKey == QStringLiteral("lidar")) {
+        // LiDAR parameters are consumed by the custom driver at startup. Apply
+        // transactionally: write YAML, respawn only lidar_node, require native
+        // parameter read-back, and roll back disk + driver if verification fails.
+        const QJsonValue previousYaml = currentYamlValue(fileKey, yamlPath);
+        ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
+        if (ok) {
+          runtimeApply = applyRuntimeParameter(fileKey, yamlPath, saved, bridge_->parameterNode());
+          if (!runtimeApply.value("verified").toBool(false)) {
+            QString rollbackMessage;
+            QJsonValue rollbackSaved;
+            QJsonObject rollbackApply;
+            const bool canRollback = !previousYaml.isUndefined() && !previousYaml.isNull();
+            const bool yamlRolledBack = canRollback &&
+              setYamlValueAtomic(fileKey, yamlPath, previousYaml, &rollbackMessage, &rollbackSaved);
+            if (yamlRolledBack) {
+              saved = rollbackSaved;
+              rollbackApply = applyRuntimeParameter(fileKey, yamlPath, previousYaml, bridge_->parameterNode());
+            }
+            const bool rollbackVerified = yamlRolledBack && rollbackApply.value("verified").toBool(false);
+            runtimeApply["rollback"] = rollbackApply;
+            runtimeApply["applied"] = false;
+            runtimeApply["verified"] = false;
+            runtimeApply["state"] = rollbackVerified ? "FAILED_ROLLED_BACK" : "ROLLBACK_FAILED";
+            message = QStringLiteral("Parameter LiDAR belum diterapkan; ") + runtimeApply.value("message").toString();
+            if (yamlRolledBack) message += QStringLiteral(" • YAML dikembalikan: ") + rollbackMessage;
+            ok = false;
+          }
+        }
+      } else {
+        // Preserve the existing behavior for perception, steering, sensor and SLAM.
+        ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
+        if (ok) runtimeApply = applyRuntimeParameter(fileKey, yamlPath, saved, bridge_->rosNode());
       }
+      const QString runtimeMessage = runtimeApply.value("message").toString();
+      if (ok && !runtimeMessage.isEmpty()) message += QStringLiteral(" • ") + runtimeMessage;
       return sendJson(socket, ok ? 200 : 409, QJsonObject{{"ok", ok}, {"message", message},
                        {"file_key", fileKey}, {"path", yamlPath}, {"saved_value", saved},
                        {"runtime_apply", runtimeApply}, {"config", loadConfigSnapshot()}, {"at_ms", nowMs()}});
@@ -1850,8 +2799,27 @@ class LocalHttpServer : public QObject {
         return sendJson(socket, 400, QJsonObject{{"ok", false}, {"message", "Slot mapping harus 1, 2, atau 3"}});
       }
       ok = bridge_->triggerService(QString("/mapping/start_%1").arg(slot), "mapping_start", &message);
+      if (ok && !recording_) {
+        QJsonObject autoRec{{"subsystem", "navigation"}, {"id", "4.2.4"},
+                            {"variation", QString("Map %1").arg(slot)}, {"condition", "SYNC MAPPING"},
+                            {"sample_rate_hz", 1.0}, {"mapping_slot", slot}};
+        QString recMessage;
+        if (startRecording(autoRec, &recMessage)) message += QStringLiteral(" • CSV 4.2.4 AUTO START");
+        else message += QStringLiteral(" • WARNING CSV 4.2.4: ") + recMessage;
+      } else if (ok && recording_) {
+        message += QStringLiteral(" • recorder lain aktif; CSV 4.2.4 tidak diambil alih");
+      }
     } else if (request.path == "/api/mapping/stop-save") {
+      const bool autoLoopRecording = recording_ && recordingSubsystem_ == QStringLiteral("navigation") &&
+                                     recordingId_ == QStringLiteral("4.2.4");
+      if (autoLoopRecording) captureRecordingSample();
       ok = bridge_->triggerService("/mapping/stop_save", "mapping_stop_save", &message);
+      if (ok && autoLoopRecording) {
+        QJsonObject recResult; QString recMessage;
+        if (stopRecording(&recMessage, &recResult))
+          message += QStringLiteral(" • CSV 4.2.4 SAVED: ") + recResult.value("raw_csv").toString();
+        else message += QStringLiteral(" • WARNING CSV 4.2.4: ") + recMessage;
+      }
     } else if (request.path == "/api/mapping/stop-without-save") {
       ok = bridge_->triggerService("/mapping/stop_without_save", "mapping_stop_without_save", &message);
     } else if (request.path == "/api/mapping/delete") {
@@ -1862,8 +2830,8 @@ class LocalHttpServer : public QObject {
       ok = bridge_->triggerServiceSync(QString("/mapping/delete_%1").arg(slot), "mapping_delete", &message);
     } else if (request.path == "/api/navigation/map-start") {
       const int slot = json.value("slot").toInt(0);
-      if (slot < 1 || slot > 3) {
-        return sendJson(socket, 400, QJsonObject{{"ok", false}, {"message", "Slot Nav2 harus 1, 2, atau 3"}});
+      if (slot < 1 || slot > 4) {
+        return sendJson(socket, 400, QJsonObject{{"ok", false}, {"message", "Slot Nav2 harus 1..4 (4 = Navigation Map)"}});
       }
       ok = bridge_->triggerService(QString("/navigation/map/start_%1").arg(slot), "nav_map_start", &message);
     } else if (request.path == "/api/navigation/map-stop") {
@@ -1914,6 +2882,10 @@ class LocalHttpServer : public QObject {
     recordingVariation_ = json.value("variation").toString().trimmed();
     recordingCondition_ = json.value("condition").toString().trimmed();
     recordingRateHz_ = std::clamp(json.value("sample_rate_hz").toDouble(5.0), 1.0, 20.0);
+    if (recordingSubsystem_ == QStringLiteral("navigation") && recordingId_ == QStringLiteral("4.2.4")) {
+      loopRecordingSlot_ = json.value("mapping_slot").toInt(0);
+      loopReferenceValid_ = false;
+    }
     recordingStartedIso_ = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
     recordingRows_.clear();
     recording_ = true;
@@ -1932,8 +2904,60 @@ class LocalHttpServer : public QObject {
     row["variation"] = recordingVariation_;
     row["condition"] = recordingCondition_;
     const QJsonObject snap = bridge_->snapshot();
+    if (recordingSubsystem_ == QStringLiteral("navigation") && recordingId_ == QStringLiteral("4.2.4")) {
+      const QJsonObject mapping = snap.value("mapping_status").toObject();
+      const QJsonObject pose = mapping.value("mapping_odom").toObject();
+      if (loopRecordingSlot_ <= 0) loopRecordingSlot_ = mapping.value("slot").toInt(0);
+      row["mapping_slot"] = QString::number(loopRecordingSlot_);
+      const bool poseValid = mapping.value("active").toBool(false) && mapping.value("map_fresh").toBool(false) &&
+                             pose.value("ready").toBool(false) && pose.value("pose_source").toString() == QStringLiteral("slam_tf") &&
+                             pose.contains("map_x") && pose.contains("map_y") && pose.contains("map_yaw") &&
+                             std::isfinite(pose.value("map_x").toDouble()) && std::isfinite(pose.value("map_y").toDouble()) &&
+                             std::isfinite(pose.value("map_yaw").toDouble());
+      row["loop_pose_valid"] = poseValid ? QStringLiteral("1") : QStringLiteral("0");
+      row["loop_state"] = poseValid ? QStringLiteral("CAPTURING") : QStringLiteral("WAITING_POSE");
+      if (poseValid) {
+        const double x = pose.value("map_x").toDouble(), y = pose.value("map_y").toDouble(), yaw = pose.value("map_yaw").toDouble();
+        if (!loopReferenceValid_) {
+          loopReferenceValid_ = true; loopReferenceX_ = x; loopReferenceY_ = y; loopReferenceYaw_ = yaw;
+        }
+        const double dx = x - loopReferenceX_, dy = y - loopReferenceY_;
+        const double dyaw = std::atan2(std::sin(yaw - loopReferenceYaw_), std::cos(yaw - loopReferenceYaw_));
+        row["loop_reference_x_m"] = QString::number(loopReferenceX_, 'f', 6);
+        row["loop_reference_y_m"] = QString::number(loopReferenceY_, 'f', 6);
+        row["loop_reference_yaw_rad"] = QString::number(loopReferenceYaw_, 'f', 8);
+        row["loop_current_x_m"] = QString::number(x, 'f', 6);
+        row["loop_current_y_m"] = QString::number(y, 'f', 6);
+        row["loop_current_yaw_rad"] = QString::number(yaw, 'f', 8);
+        row["loop_error_m"] = QString::number(std::hypot(dx, dy), 'f', 6);
+        row["loop_yaw_error_deg"] = QString::number(std::abs(dyaw) * 180.0 / kPi, 'f', 6);
+      }
+    }
+    const bool navBab41 = recordingSubsystem_ == QStringLiteral("navigation") &&
+                          recordingId_.startsWith(QStringLiteral("4.1."));
+    const auto allowRecordingChannel = [this, navBab41](const QString &key) {
+      if (!navBab41) return true;
+      if (recordingId_ == QStringLiteral("4.1.2")) {
+        return key == QStringLiteral("lidar_raw") || key == QStringLiteral("connected.lidar");
+      }
+      if (recordingId_ == QStringLiteral("4.1.3")) {
+        return key == QStringLiteral("imu_raw") || key == QStringLiteral("imu_raw_euler") ||
+               key == QStringLiteral("imu_raw_mag") || key == QStringLiteral("connected.imu");
+      }
+      if (recordingId_ == QStringLiteral("4.1.1") || recordingId_ == QStringLiteral("4.1.5")) {
+        return key == QStringLiteral("lidar_raw") || key == QStringLiteral("imu_raw") ||
+               key == QStringLiteral("imu_raw_euler") || key == QStringLiteral("imu_raw_mag") ||
+               key == QStringLiteral("odom") || key == QStringLiteral("connected.lidar") ||
+               key == QStringLiteral("connected.imu");
+      }
+      if (recordingId_ == QStringLiteral("4.1.4")) {
+        return key == QStringLiteral("odom");
+      }
+      return true;  // 4.1.6 is a TF validation section, not a raw sensor-value section.
+    };
     for (auto it = snap.constBegin(); it != snap.constEnd(); ++it) {
       if (it.key().startsWith(QStringLiteral("__"))) continue;
+      if (!allowRecordingChannel(it.key())) continue;
       flattenJson(it.key(), it.value(), row);
     }
     recordingRows_.push_back(row);

@@ -1,6 +1,7 @@
 // Katalog NAVIGATION GUI — disusun dari BAB IV TA_Ernanta_Revisi_Final.docx.
 // Struktur leaf mengikuti dokumen terbaru secara langsung:
-// 4.1 raw sensor -> 4.2 SLAM -> 4.3 AMCL -> 4.4 Smac Hybrid-A* -> 4.5 end-to-end.
+// 4.1 raw sensor -> 4.2 SLAM -> 4.3 AMCL -> 4.4 navigasi global AGV.
+// Validasi MPPI/end-to-end digabung ke 4.4.3-4.4.4 sesuai struktur laporan; tidak ada subbab navigasi 4.5.
 // Tidak ada nilai estimasi/simulasi yang ditanamkan sebagai hasil eksperimen.
 
 auto navField = [](const char *key, const char *label, const char *kind,
@@ -40,26 +41,35 @@ auto navAdd = [&](const char *groupId, const char *groupTitle, const char *id,
     spec.graphCaptions << QString::fromUtf8(caption);
   for (const auto &item : series)
     spec.liveSeries[QString::fromUtf8(item.first)] = QString::fromUtf8(item.second);
+  // Every navigation experiment must expose a graph backed by its actual live
+  // telemetry. Existing report-specific captions are preserved; only sections
+  // that previously had no graph receive this generic actual-data caption.
+  if (spec.graphCaptions.isEmpty() && !spec.liveSeries.isEmpty())
+    spec.graphCaptions << QStringLiteral("Grafik data aktual — ") + spec.section;
   spec.parameterFields = commonNavFields();
   for (const auto &field : extra) spec.parameterFields << field;
   out << spec;
 };
 
+// BAB 4.1 must use raw ROS-level measurements only.  Processed navigation
+// channels (lidar.*, imu.*) remain untouched for SLAM/AMCL/Nav2 sections.
 const std::initializer_list<std::pair<const char *, const char *>> communicationSeries = {
-    {"LiDAR rate", "lidar.scan_rate_hz"}, {"IMU rate", "imu.rate_hz"},
-    {"Odom rate", "odom.rate_hz"}, {"LiDAR jitter", "lidar.timestamp_jitter_ms"},
-    {"IMU jitter", "imu.timestamp_jitter_ms"}, {"Odom jitter", "odom.timestamp_jitter_ms"}};
+    {"LiDAR rate", "lidar_raw.rate_hz"}, {"IMU rate", "imu_raw.rate_hz"},
+    {"Odom rate", "odom.rate_hz"}, {"LiDAR jitter", "lidar_raw.timestamp_jitter_ms"},
+    {"IMU jitter", "imu_raw.timestamp_jitter_ms"}, {"Odom jitter", "odom.timestamp_jitter_ms"}};
 const std::initializer_list<std::pair<const char *, const char *>> lidarSeries = {
-    {"Range", "lidar.range_center_m"}, {"Valid ratio", "lidar.valid_ratio_pct"},
-    {"Dropout", "lidar.dropout_pct"}, {"Scan rate", "lidar.scan_rate_hz"},
-    {"Jitter", "lidar.timestamp_jitter_ms"}};
+    {"Range", "lidar_raw.range_center_m"}, {"Valid ratio", "lidar_raw.valid_ratio_pct"},
+    {"Dropout", "lidar_raw.dropout_pct"}, {"Scan rate", "lidar_raw.rate_hz"},
+    {"Jitter", "lidar_raw.timestamp_jitter_ms"}};
 const std::initializer_list<std::pair<const char *, const char *>> imuSeries = {
-    {"Yaw", "imu.yaw_rad"}, {"Gyro Z", "imu.gz"}, {"Accel X", "imu.ax"},
-    {"Accel Y", "imu.ay"}, {"Accel Z", "imu.az"}};
+    // BAB 4.1.3 penelitian memakai IMU sebagai yaw-only. Quaternion tetap
+    // direkam di raw CSV oleh commonPaths() sebagai sumber audit Persamaan (2.8),
+    // tetapi grafik/tabel utama hanya menggunakan yaw.
+    {"Yaw", "imu_raw.yaw_rad"}};
 const std::initializer_list<std::pair<const char *, const char *>> odomSeries = {
-    {"vx", "odom.v"}, {"wz", "odom.w"}, {"x", "odom.x"}, {"y", "odom.y"}};
+    {"vx", "odom.v"}};
 const std::initializer_list<std::pair<const char *, const char *>> slamSeries = {
-    {"Map update", "slam.map_update_hz"}, {"Unknown", "slam.unknown_pct"},
+    {"Map update", "slam.map_update_hz"}, {"Sel Belum Terobservasi", "slam.unknown_pct"},
     {"Occupied", "slam.occupied_pct"}, {"CPU", "host.cpu_percent"},
     {"RAM", "host.ram_used_gb"}};
 const std::initializer_list<std::pair<const char *, const char *>> amclSeries = {
@@ -70,15 +80,13 @@ const std::initializer_list<std::pair<const char *, const char *>> plannerSeries
     {"Planning time", "nav_path.planning_latency_ms"}, {"Path length", "nav_path.length_m"},
     {"CTE", "derived.cte_m"}, {"Heading error", "derived.path_heading_error_rad"},
     {"Endpoint error", "derived.endpoint_error_m"}};
-const std::initializer_list<std::pair<const char *, const char *>> navEndSeries = {
-    {"Path length", "nav_path.length_m"}, {"CTE", "derived.cte_m"},
-    {"Endpoint error", "derived.endpoint_error_m"},
-    {"Goal yaw error", "derived.goal_yaw_error_rad"},
-    {"vx", "odom.v"}};
-
 const auto gtDistance = [&]() {
   return QVector<ExperimentParameterField>{
-      navField("gt_distance_m", "Jarak Referensi (m)", "float", "", "", "1.0", true)};
+      navField("gt_distance_m", "Jarak Referensi (m)", "float", "", "", "2.0", true)};
+};
+const auto gtYaw = [&]() {
+  return QVector<ExperimentParameterField>{
+      navField("gt_yaw_deg", "Sudut Referensi Yaw (deg)", "float", "", "", "0.0", true)};
 };
 const auto gtPose = [&]() {
   return QVector<ExperimentParameterField>{
@@ -113,14 +121,18 @@ navAdd("4.1", "4.1 Pengujian Komunikasi dan Data Raw Sensor", "4.1.2",
 
 navAdd("4.1", "4.1 Pengujian Komunikasi dan Data Raw Sensor", "4.1.3",
        "4.1.3 Pengujian Data Raw IMU",
-       "Data raw IMU",
-       {"Sampel", "qx", "qy", "qz", "qw", "Yaw (deg)", "Angular z", "Timestamp"},
-       {}, imuSeries, {});
+       "Tabel 4.3 Pengujian akurasi yaw IMU",
+       {"Pengujian", "Sudut Referensi (deg)", "Yaw IMU (deg)",
+        "Error Yaw (deg)", "MAE Yaw (deg)", "RMSE Yaw (deg)", "Status"},
+       {"Perbandingan yaw IMU terhadap sudut referensi",
+        "Error yaw terhadap sudut referensi",
+        "MAE dan RMSE yaw terhadap sudut referensi"},
+       imuSeries, gtYaw());
 
 navAdd("4.1", "4.1 Pengujian Komunikasi dan Data Raw Sensor", "4.1.4",
        "4.1.4 Pengujian Data Raw Odometri",
        "Data raw odometri",
-       {"Sampel", "Timestamp", "vx", "vy", "wz", "Frame", "Catatan"},
+       {"Sampel", "Timestamp", "vx", "Frame", "Catatan"},
        {}, odomSeries, {});
 
 navAdd("4.1", "4.1 Pengujian Komunikasi dan Data Raw Sensor", "4.1.5",
@@ -144,6 +156,13 @@ navAdd("4.1", "4.1 Pengujian Komunikasi dan Data Raw Sensor", "4.1.5",
       QStringLiteral("x"), QStringLiteral("y"), QStringLiteral("z"),
       QStringLiteral("Roll"), QStringLiteral("Pitch"), QStringLiteral("Yaw"),
       QStringLiteral("Static/Dynamic"), QStringLiteral("Status")};
+  // TF validation keeps its structural table and additionally plots the live
+  // localization pose produced through the map->odom->base chain. No dummy TF
+  // samples are introduced.
+  spec.graphCaptions << QStringLiteral("Grafik konsistensi pose hasil rantai TF terhadap waktu");
+  spec.liveSeries[QStringLiteral("Pose X")] = QStringLiteral("amcl.x");
+  spec.liveSeries[QStringLiteral("Pose Y")] = QStringLiteral("amcl.y");
+  spec.liveSeries[QStringLiteral("Pose Yaw")] = QStringLiteral("amcl.yaw");
   spec.recordable = false;
   auto tfRow = [&](const char *parent, const char *child, const char *kind) {
     QVariantMap row;
@@ -171,21 +190,21 @@ auto slamMapFields = [&](const char *mapName) {
 navAdd("4.2", "4.2 Pengujian SLAM", "4.2.1",
        "4.2.1 Hasil Mapping 1",
        "Hasil Mapping 1",
-       {"Map", "Resolution (m/cell)", "Width (m)", "Height (m)", "Unknown (%)",
+       {"Map", "Resolution (m/cell)", "Width (m)", "Height (m)", "Sel Belum Terobservasi (%)",
         "Occupied (%)", "Map Update (Hz)", "CPU Mean (%)", "RAM Mean (GB)", "Catatan"},
        {}, slamSeries, slamMapFields("Map 1"));
 
 navAdd("4.2", "4.2 Pengujian SLAM", "4.2.2",
        "4.2.2 Hasil Mapping 2",
        "Hasil Mapping 2",
-       {"Map", "Resolution (m/cell)", "Width (m)", "Height (m)", "Unknown (%)",
+       {"Map", "Resolution (m/cell)", "Width (m)", "Height (m)", "Sel Belum Terobservasi (%)",
         "Occupied (%)", "Map Update (Hz)", "CPU Mean (%)", "RAM Mean (GB)", "Catatan"},
        {}, slamSeries, slamMapFields("Map 2"));
 
 navAdd("4.2", "4.2 Pengujian SLAM", "4.2.3",
        "4.2.3 Hasil Mapping 3",
        "Hasil Mapping 3",
-       {"Map", "Resolution (m/cell)", "Width (m)", "Height (m)", "Unknown (%)",
+       {"Map", "Resolution (m/cell)", "Width (m)", "Height (m)", "Sel Belum Terobservasi (%)",
         "Occupied (%)", "Map Update (Hz)", "CPU Mean (%)", "RAM Mean (GB)", "Catatan"},
        {}, slamSeries, slamMapFields("Map 3"));
 
@@ -204,7 +223,8 @@ navAdd("4.2", "4.2 Pengujian SLAM", "4.2.5",
        "Evaluasi kualitas struktur map",
        {"Map", "Titik/Dimensi Referensi", "Fisik (m)", "Map (m)", "Error (m)",
         "MAE (m)", "RMSE Struktur (m)", "Catatan"},
-       {}, slamSeries,
+       {}, {{"Map structure error", "derived.map_structure_error_m"},
+            {"Sel Belum Terobservasi", "slam.unknown_pct"}, {"Occupied", "slam.occupied_pct"}},
        {navField("map_name", "Map", "string", "", "", "Map 1"),
         navField("reference_name", "Titik/Dimensi Referensi", "string", "", "", "R1"),
         navField("reference_dimension_m", "Jarak Fisik (m)", "float", "", "", "", true),
@@ -275,7 +295,7 @@ navAdd("4.3", "4.3 Pengujian dan Tuning AMCL", "4.3.5",
        {}, amclSeries, gtPose());
 
 navAdd("4.3", "4.3 Pengujian dan Tuning AMCL", "4.3.6",
-       "4.3.6 Pengujian Localization Dinamis",
+       "4.3.6 Pengujian Lokalisasi Dinamis",
        "Pengujian localization dinamis",
        {"Run", "Skenario", "RMSE Posisi (cm)", "RMSE Yaw (deg)",
         "Var X Maks", "Var Y Maks", "Var Yaw Maks", "Lonjakan Pose", "Status"},
@@ -289,13 +309,15 @@ navAdd("4.3", "4.3 Pengujian dan Tuning AMCL", "4.3.7",
        {}, amclSeries, gtPose());
 
 /* ========================================================================== */
-/* 4.4 Pengujian dan Tuning Smac Hybrid-A*                                  */
+/* 4.4 Pengujian dan Analisis Navigasi Global AGV                            */
 /* ========================================================================== */
-navAdd("4.4", "4.4 Pengujian dan Tuning Smac Hybrid-A*", "4.4.1",
-       "4.4.1 Validasi Input Global Costmap",
-       "Validasi input global costmap",
-       {"Item", "Nilai Aktual", "Kriteria", "Status"},
-       {}, plannerSeries,
+navAdd("4.4", "4.4 Pengujian dan Analisis Navigasi Global AGV", "4.4.1",
+       "4.4.1 Validasi Global Costmap dan Hybrid A*",
+       "Tabel 4.6 Validasi global costmap dan Hybrid A*",
+       {"Skenario", "Global Costmap", "Motion Model", "Path Terbentuk",
+        "Path Length (m)", "Planning Time (ms)", "Collision Free", "Status"},
+       {"Gambar 4.3 Planning time dan panjang jalur hasil Hybrid A*"},
+       plannerSeries,
        {navField("costmap_resolution", "Global Costmap Resolution (m)", "yaml_readonly",
                  "nav2", "global_costmap.global_costmap.ros__parameters.resolution"),
         navField("footprint", "Footprint", "yaml_readonly",
@@ -303,94 +325,75 @@ navAdd("4.4", "4.4 Pengujian dan Tuning Smac Hybrid-A*", "4.4.1",
         navField("inflation_radius", "Inflation Radius (m)", "yaml_readonly",
                  "nav2", "global_costmap.global_costmap.ros__parameters.inflation_layer.inflation_radius"),
         navField("motion_model", "Motion Model", "yaml_readonly",
-                 "nav2", "planner_server.ros__parameters.GridBased.motion_model_for_search")});
+                 "nav2", "planner_server.ros__parameters.GridBased.motion_model_for_search"),
+        navField("minimum_turning_radius", "Minimum Turning Radius (m)", "yaml_readonly",
+                 "nav2", "planner_server.ros__parameters.GridBased.minimum_turning_radius")});
 
-navAdd("4.4", "4.4 Pengujian dan Tuning Smac Hybrid-A*", "4.4.2",
-       "4.4.2 Tuning minimum_turning_radius",
-       "Tuning minimum_turning_radius",
-       {"minimum_turning_radius (m)", "Planning Time (ms)", "Path Length (m)",
-        "Min Clearance (m)", "Tracking Error/CTE (m)", "Feasible Fisik", "Status"},
-       {"Pengaruh minimum_turning_radius terhadap jalur"},
+navAdd("4.4", "4.4 Pengujian dan Analisis Navigasi Global AGV", "4.4.2",
+       "4.4.2 Tuning dan Pengujian Smac Planner Hybrid",
+       "Tabel 4.7 Tuning SmacPlannerHybrid",
+       {"Run", "minimum_turning_radius (m)", "Tolerance (m)", "Max Planning Time (s)",
+        "Angle Bins", "Reverse Penalty", "Cost Penalty", "Path Length (m)",
+        "Planning Time (ms)", "CTE RMSE (m)", "Status"},
+       {"Gambar 4.4 Pengaruh tuning SmacPlannerHybrid terhadap performa jalur"},
        plannerSeries,
        {navField("minimum_turning_radius", "minimum_turning_radius (m)", "float", "nav2",
-                 "planner_server.ros__parameters.GridBased.minimum_turning_radius", "2.0")});
+                 "planner_server.ros__parameters.GridBased.minimum_turning_radius", "2.0"),
+        navField("tolerance", "Planner tolerance (m)", "float", "nav2",
+                 "planner_server.ros__parameters.GridBased.tolerance"),
+        navField("max_planning_time", "Max planning time (s)", "float", "nav2",
+                 "planner_server.ros__parameters.GridBased.max_planning_time"),
+        navField("angle_quantization_bins", "Angle quantization bins", "int", "nav2",
+                 "planner_server.ros__parameters.GridBased.angle_quantization_bins"),
+        navField("reverse_penalty", "Reverse penalty", "float", "nav2",
+                 "planner_server.ros__parameters.GridBased.reverse_penalty"),
+        navField("non_straight_penalty", "Non-straight penalty", "float", "nav2",
+                 "planner_server.ros__parameters.GridBased.non_straight_penalty"),
+        navField("cost_penalty", "Cost penalty", "float", "nav2",
+                 "planner_server.ros__parameters.GridBased.cost_penalty"),
+        navField("analytic_expansion_ratio", "Analytic expansion ratio", "float", "nav2",
+                 "planner_server.ros__parameters.GridBased.analytic_expansion_ratio"),
+        navField("analytic_expansion_max_length", "Analytic expansion max length (m)", "float", "nav2",
+                 "planner_server.ros__parameters.GridBased.analytic_expansion_max_length"),
+        navField("max_iterations", "Maximum iterations", "int", "nav2",
+                 "planner_server.ros__parameters.GridBased.max_iterations"),
+        navField("retrospective_penalty", "Retrospective penalty", "float", "nav2",
+                 "planner_server.ros__parameters.GridBased.retrospective_penalty")});
 
-navAdd("4.4", "4.4 Pengujian dan Tuning Smac Hybrid-A*", "4.4.3",
-       "4.4.3 Pengujian Beberapa Start-Goal",
-       "Tabel 4.6 Kinerja SmacPlannerHybrid pada beberapa start-goal",
-       {"Skenario", "Start", "Goal", "Path Length (m)", "Planning Time (ms)",
-        "Reverse/Cusp", "Min Clearance (m)", "Status"},
-       {"Planning time dan panjang jalur beberapa start-goal"},
-       plannerSeries, {});
+navAdd("4.4", "4.4 Pengujian dan Analisis Navigasi Global AGV", "4.4.3",
+       "4.4.3 Pengujian Navigasi pada Variasi Lintasan",
+       "Tabel 4.8 Pengujian navigasi pada variasi lintasan",
+       {"Skenario", "Run", "Goal Status", "Waktu Navigasi (s)", "Path Length (m)",
+        "CTE RMSE (m)", "Endpoint Error (m)", "Goal Yaw Error (deg)",
+        "Collision Monitor Event", "Status"},
+       {"Gambar 4.5 Trajectory aktual terhadap global path",
+        "Gambar 4.6 Perbandingan performa lima variasi lintasan"},
+       {{"Planning time", "nav_path.planning_latency_ms"},
+        {"Path length", "nav_path.length_m"}, {"CTE", "derived.cte_m"},
+        {"Endpoint error", "derived.endpoint_error_m"},
+        {"Goal yaw error", "derived.goal_yaw_error_rad"},
+        {"Navigation time", "goal_state.duration_s"},
+        {"Success rate", "derived.nav_success_pct"}},
+       {navField("gt_x", "Goal Ground Truth X (m)", "float", "", "", "0.0", true),
+        navField("gt_y", "Goal Ground Truth Y (m)", "float", "", "", "0.0", true),
+        navField("gt_yaw_deg", "Goal Ground Truth Yaw (deg)", "float", "", "", "0.0", true),
+        navField("mppi_vx_max", "MPPI vx max (m/s)", "yaml_readonly", "nav2",
+                 "controller_server.ros__parameters.FollowPath.vx_max"),
+        navField("mppi_wz_max", "MPPI wz max (rad/s)", "yaml_readonly", "nav2",
+                 "controller_server.ros__parameters.FollowPath.wz_max"),
+        navField("mppi_turning_radius", "MPPI Ackermann min turning radius (m)", "yaml_readonly", "nav2",
+                 "controller_server.ros__parameters.FollowPath.AckermannConstraints.min_turning_r")});
 
-navAdd("4.4", "4.4 Pengujian dan Tuning Smac Hybrid-A*", "4.4.4",
-       "4.4.4 Repeatability Planner",
-       "Repeatability planner",
-       {"Run", "Skenario", "Path Length (m)", "Planning Time (ms)",
-        "Heading Variation (rad)", "Min Clearance (m)", "Status"},
-       {}, plannerSeries, {});
-
-navAdd("4.4", "4.4 Pengujian dan Tuning Smac Hybrid-A*", "4.4.5",
-       "4.4.5 Analisis Feasibility Jalur terhadap Kinematika AGV",
-       "Analisis feasibility jalur terhadap kinematika AGV",
-       {"Skenario", "Radius Minimum Path (m)", "Radius Fisik AGV (m)",
-        "Reverse/Cusp", "Min Clearance (m)", "Steering Saturation",
-        "Feasible", "Catatan"},
-       {}, plannerSeries,
-       {navField("minimum_turning_radius", "Radius Belok Fisik AGV (m)", "float", "nav2",
-                 "planner_server.ros__parameters.GridBased.minimum_turning_radius", "2.0")});
-
-navAdd("4.4", "4.4 Pengujian dan Tuning Smac Hybrid-A*", "4.4.6",
-       "4.4.6 Validasi Hybrid-A* Final",
-       "Validasi Hybrid-A* final",
-       {"Skenario", "Planning Time (ms)", "Path Length (m)", "Min Clearance (m)",
-        "Tracking Error/CTE (m)", "Collision Free", "Kinematik Valid", "Success"},
-       {}, plannerSeries, {});
-
-/* ========================================================================== */
-/* 4.5 Validasi Sistem Navigasi Keseluruhan                                  */
-/* ========================================================================== */
-auto endToEndFields = [&]() {
-  return QVector<ExperimentParameterField>{
-      navField("gt_x", "Goal Ground Truth X (m)", "float", "", "", "0.0", true),
-      navField("gt_y", "Goal Ground Truth Y (m)", "float", "", "", "0.0", true),
-      navField("gt_yaw_deg", "Goal Ground Truth Yaw (deg)", "float", "", "", "0.0", true)};
-};
-
-auto endColumns = std::initializer_list<const char *>{
-    "Run", "Waktu (s)", "Path Length (m)", "Error Posisi Akhir (m)",
-    "Error Yaw Akhir (deg)", "CTE RMSE (m)", "Recovery", "Collision Monitor Event", "Status"};
-
-navAdd("4.5", "4.5 Validasi Sistem Navigasi Keseluruhan", "4.5.1",
-       "4.5.1 Lintasan Lurus", "Validasi lintasan lurus",
-       endColumns, {"Trajectory aktual terhadap global path — lintasan lurus"},
-       navEndSeries, endToEndFields());
-
-navAdd("4.5", "4.5 Validasi Sistem Navigasi Keseluruhan", "4.5.2",
-       "4.5.2 Belok 90°", "Validasi belok 90 derajat",
-       endColumns, {"Trajectory aktual terhadap global path — belok 90°"},
-       navEndSeries, endToEndFields());
-
-navAdd("4.5", "4.5 Validasi Sistem Navigasi Keseluruhan", "4.5.3",
-       "4.5.3 Koridor", "Validasi koridor",
-       endColumns, {"Trajectory aktual terhadap global path — koridor"},
-       navEndSeries, endToEndFields());
-
-navAdd("4.5", "4.5 Validasi Sistem Navigasi Keseluruhan", "4.5.4",
-       "4.5.4 U-Turn", "Validasi U-Turn",
-       endColumns, {"Trajectory aktual terhadap global path — U-Turn"},
-       navEndSeries, endToEndFields());
-
-navAdd("4.5", "4.5 Validasi Sistem Navigasi Keseluruhan", "4.5.5",
-       "4.5.5 Skenario Kompleks", "Validasi skenario kompleks",
-       endColumns, {"Trajectory aktual terhadap global path — skenario kompleks"},
-       navEndSeries, endToEndFields());
-
-navAdd("4.5", "4.5 Validasi Sistem Navigasi Keseluruhan", "4.5.6",
-       "4.5.6 Rekapitulasi Performa Sistem",
-       "Tabel 4.7 Rekapitulasi performa navigasi end-to-end",
-       {"Skenario", "Percobaan", "Berhasil", "Success Rate (%)",
-        "Waktu Rata-rata (s)", "Error Akhir Rata-rata (m)",
+navAdd("4.4", "4.4 Pengujian dan Analisis Navigasi Global AGV", "4.4.4",
+       "4.4.4 Rekapitulasi Performa Navigasi",
+       "Tabel 4.9 Rekapitulasi performa navigasi",
+       {"Skenario", "Percobaan", "Berhasil", "Success Rate (%)", "Waktu Rata-rata (s)",
+        "Path Rata-rata (m)", "CTE RMSE (m)", "Error Akhir Rata-rata (m)",
         "Error Yaw Rata-rata (deg)", "Catatan"},
-       {"Gambar 4.3 Error posisi akhir pada lima skenario navigasi"},
-       navEndSeries, {});
+       {"Gambar 4.7 Success rate dan waktu navigasi tiap skenario",
+        "Gambar 4.8 Error akhir navigasi tiap skenario"},
+       {{"Navigation time", "goal_state.duration_s"},
+        {"Path length", "nav_path.length_m"}, {"CTE", "derived.cte_m"},
+        {"Endpoint error", "derived.endpoint_error_m"},
+        {"Goal yaw error", "derived.goal_yaw_error_rad"},
+        {"Success rate", "derived.nav_success_pct"}}, {});

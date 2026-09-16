@@ -1,1 +1,1 @@
-/home/otomasi2/ros/src/navigation/maps/map_3.yaml
+/home/otomasi2/ros/src/navigation/maps/map_2.yaml

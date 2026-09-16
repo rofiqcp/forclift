@@ -17,8 +17,10 @@ setpoint:
   # Center of the target box; kept explicit for CSV/backward compatibility.
   x_px: 640
   y_px: 640
-  # Same approximate pinhole fx already published by astra_rgb_v4l2_node at 1280px.
-  focal_length_x_px: 1280.0
+  # Fallback only. Runtime uses /camera/color/camera_info and scales fx into
+  # the 1280x720 letterbox canvas (640px raw fx -> 960px at 1.5x scale).
+  focal_length_x_px: 960.0
+  principal_x_px: 640.0
 hole_detection:
   class_name: hole pallet
   minimum_confidence: 0.55
@@ -41,7 +43,15 @@ block_detection:
   minimum_aspect_ratio: 0.3
   maximum_aspect_ratio: 3.0
 yaw:
+  # Yaw is derived from perspective of the validated left/right pallet holes.
+  # Fork visibility is not required; setpoint_yaw_offset_deg is the fixed
+  # camera-to-fork angular reference.
+  method: hole_pair_perspective
   setpoint_yaw_offset_deg: 0.0
+  geometry_sign: 1.0
+  minimum_hole_box_px: 8.0
+  depth_ratio_min: 0.60
+  depth_ratio_max: 1.67
   maximum_yaw_jump_deg: 8.0
 filter:
   hole_position_smoothing_alpha: 0.25

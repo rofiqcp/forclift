@@ -8,10 +8,11 @@ Nav2, perception, mapping controls, map switching, and the one web server.
 
 import errno
 import os
+import socket
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
@@ -48,6 +49,23 @@ def _claim_singleton():
                 pass
     raise RuntimeError("unable to claim web_gui full-stack singleton PID file")
 
+def _verify_web_port(context):
+    """Fail before autonomous/sensors start when the requested HTTP port is already owned."""
+    bind_address = LaunchConfiguration("bind_address").perform(context).strip() or "127.0.0.1"
+    port = int(LaunchConfiguration("port").perform(context))
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind((bind_address, port))
+    except OSError as exc:
+        raise RuntimeError(
+            f"web GUI port {bind_address}:{port} is already in use; refusing to start sensors/navigation "
+            f"without the owned HMI ({exc})"
+        ) from exc
+    finally:
+        probe.close()
+    return []
+
 def generate_launch_description():
     _claim_singleton()
     nav_share = get_package_share_directory("navigation")
@@ -62,7 +80,7 @@ def generate_launch_description():
         # Web is the primary operator UI. RViz remains optional diagnostics and
         # is OFF by default to avoid its previous crash/respawn load on Jetson.
         DeclareLaunchArgument("enable_rviz", default_value="false"),
-        DeclareLaunchArgument("map", default_value="auto"),
+        DeclareLaunchArgument("map", default_value=os.path.join(nav_share, "maps", "map_Navigation.yaml")),
     ]
 
     full_stack = IncludeLaunchDescription(
@@ -78,4 +96,7 @@ def generate_launch_description():
             "web_read_only": LaunchConfiguration("read_only"),
         }.items(),
     )
-    return LaunchDescription(args + [full_stack])
+    return LaunchDescription(args + [
+        OpaqueFunction(function=_verify_web_port),
+        full_stack,
+    ])

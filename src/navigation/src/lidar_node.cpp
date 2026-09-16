@@ -1986,10 +1986,27 @@ void LiDARNode::on_scan_received(const ScanData & scan)
   }
 
   // SAFETY FIRST: every completed physical revolution is published before
-  // anti-starburst filtering, even when it is sparse. That lets the independent
-  // safety-health node fail immediately instead of waiting for a stale timeout.
-  // Checksum acceptance itself follows the configured strict_checksum policy.
+  // anti-starburst filtering, even when it is sparse. Keep the acquisition
+  // timestamp on the safety stream so health diagnostics retain the physical
+  // timing evidence.
   publish_safety_scan(new_scan, source_stamp, measured_period);
+
+  // Navigation consumers (AMCL/costmaps) require a scan timestamp that is still
+  // represented in the live TF cache. Under heavy Jetson load a completed scan
+  // can sit in the callback queue for >1 s even though the LiDAR itself is healthy.
+  // Preserve the real acquisition stamp while it is fresh, but clamp only the
+  // NAVIGATION product when queue latency exceeds 350 ms. This prevents TF
+  // MessageFilter drops without changing the safety stream or replaying scans.
+  rclcpp::Time navigation_stamp = source_stamp;
+  const rclcpp::Time publish_now = this->now();
+  const double navigation_stamp_age = (publish_now - source_stamp).seconds();
+  if (navigation_stamp_age > 0.35 || navigation_stamp_age < -0.05) {
+    navigation_stamp = publish_now;
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 3000,
+      "[LIDAR-NAV-STAMP] acquisition stamp age %.3fs outside TF-safe window; clamped to publish time",
+      navigation_stamp_age);
+  }
 
   if (hard_sparse || kept_valid_bins == 0U) {
     RCLCPP_WARN_THROTTLE(
@@ -1998,7 +2015,7 @@ void LiDARNode::on_scan_received(const ScanData & scan)
       raw_valid_bins, kept_valid_bins, hard_min_valid);
     return;
   }
-  publish_scan(filtered_scan, source_stamp, measured_period);
+  publish_scan(filtered_scan, navigation_stamp, measured_period);
 }
 
 void LiDARNode::publish_safety_scan(

@@ -1,6 +1,9 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
+#include <iomanip>
+#include <sstream>
 #include <cctype>
 #include <cstring>
 #include <cstdint>
@@ -19,6 +22,9 @@
 #include <sys/ioctl.h>
 
 #include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/int32.hpp"
@@ -61,6 +67,36 @@ bool contains_case_insensitive(const std::string & haystack, const std::string &
 {
   return upper_copy(haystack).find(upper_copy(needle)) != std::string::npos;
 }
+
+
+uint32_t wire_crc32(const std::string & data)
+{
+  uint32_t crc = 0xFFFFFFFFU;
+  for (const unsigned char c : data) {
+    crc ^= c;
+    for (uint8_t bit = 0; bit < 8U; ++bit) {
+      crc = (crc & 1U) ? ((crc >> 1U) ^ 0xEDB88320U) : (crc >> 1U);
+    }
+  }
+  return crc ^ 0xFFFFFFFFU;
+}
+
+double kv_double(const std::string & text, const std::string & key, double fallback = 0.0)
+{
+  const std::string marker = key + "=";
+  const auto pos = text.find(marker);
+  if (pos == std::string::npos) {
+    return fallback;
+  }
+  const auto start = pos + marker.size();
+  const auto end = text.find_first_of(" \t,;", start);
+  try {
+    return std::stod(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+  } catch (const std::exception &) {
+    return fallback;
+  }
+}
+
 }  // namespace
 
 class WinchSerialNode final : public rclcpp::Node
@@ -77,10 +113,14 @@ public:
       250, declare_parameter<std::int64_t>("status_period_ms", 1000));
     rx_timeout_ms_ = std::max<std::int64_t>(
       1000, declare_parameter<std::int64_t>("rx_timeout_ms", 5000));
+    hmi_sync_enabled_ = declare_parameter<bool>("hmi_sync_enabled", true);
+    hmi_sync_period_ms_ = std::max<std::int64_t>(
+      200, declare_parameter<std::int64_t>("hmi_sync_period_ms", 500));
 
-    if (baud != 115200) {
-      throw std::invalid_argument("winch firmware currently supports baud=115200 only");
+    if (baud != 115200 && baud != 1000000) {
+      throw std::invalid_argument("F411 CDC baud must be 115200 or 1000000");
     }
+    serial_baud_ = baud;
 
     const auto latched = rclcpp::QoS(1).reliable().transient_local();
     connected_pub_ = create_publisher<std_msgs::msg::Bool>("/winch/connected", latched);
@@ -96,6 +136,90 @@ public:
     command_sub_ = create_subscription<std_msgs::msg::String>(
       "/winch/command", rclcpp::QoS(10).reliable(),
       [this](const std_msgs::msg::String::SharedPtr msg) {handle_command(msg->data);});
+
+    // Display-only telemetry used by the STM32 HMI. These subscriptions never
+    // command ESC/Nav2/perception; they only mirror already-published ROS state.
+    esc_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/esc/ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {esc_ready_ = m->data;});
+    drive_connected_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/esc/drive/connected", 10, [this](std_msgs::msg::Bool::SharedPtr m) {drive_connected_ = m->data;});
+    steer_connected_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/esc/steer/connected", 10, [this](std_msgs::msg::Bool::SharedPtr m) {steer_connected_ = m->data;});
+    motion_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/system/motion_ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {motion_ready_ = m->data;});
+    nav2_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/system/nav2_ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {nav2_ready_ = m->data;});
+    localization_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/system/motion_localization_ready", 10,
+      [this](std_msgs::msg::Bool::SharedPtr m) {localization_ready_ = m->data;});
+    imu_connected_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/imu/connected", 10, [this](std_msgs::msg::Bool::SharedPtr m) {imu_connected_ = m->data;});
+    camera_connected_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/perception/camera_connected", 10,
+      [this](std_msgs::msg::Bool::SharedPtr m) {
+        camera_connected_ = m->data;
+        last_camera_state_rx_ = std::chrono::steady_clock::now();
+      });
+    camera_healthy_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/perception/camera_healthy", 10,
+      [this](std_msgs::msg::Bool::SharedPtr m) {
+        camera_healthy_ = m->data;
+        last_camera_state_rx_ = std::chrono::steady_clock::now();
+      });
+
+    // These publishers use SensorDataQoS / BEST_EFFORT in the runtime stack.
+    // Matching their QoS prevents the HMI bridge from silently missing fresh
+    // telemetry while the local GUI still sees it.
+    const auto sensor_qos = rclcpp::SensorDataQoS().keep_last(5);
+    imu_data_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+      "/imu/data", sensor_qos, [this](sensor_msgs::msg::Imu::SharedPtr m) {
+        const auto & q = m->orientation;
+        const double siny = 2.0 * (q.w * q.z + q.x * q.y);
+        const double cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+        imu_yaw_rad_ = std::atan2(siny, cosy);
+        imu_connected_ = true;
+        last_imu_data_rx_ = std::chrono::steady_clock::now();
+      });
+    drive_speed_sub_ = create_subscription<std_msgs::msg::Float64>(
+      "/esc/drive_actual_mps", sensor_qos,
+      [this](std_msgs::msg::Float64::SharedPtr m) {drive_speed_mps_ = m->data;});
+    steering_sub_ = create_subscription<std_msgs::msg::Float64>(
+      "/esc/steering_actual_rad", sensor_qos,
+      [this](std_msgs::msg::Float64::SharedPtr m) {steering_rad_ = m->data;});
+    yolo_perf_sub_ = create_subscription<std_msgs::msg::String>(
+      "/obstacle_detection/performance", sensor_qos,
+      [this](std_msgs::msg::String::SharedPtr m) {
+        yolo_perf_seen_ = true;
+        last_yolo_rx_ = std::chrono::steady_clock::now();
+        yolo_fps_ = kv_double(m->data, "fps", 0.0);
+        yolo_inference_ms_ = kv_double(m->data, "inference_ms", 0.0);
+        yolo_detections_ = static_cast<int>(std::max(0.0, kv_double(m->data, "detections", 0.0)));
+      });
+    person_perf_sub_ = create_subscription<std_msgs::msg::String>(
+      "/warehouse_obstacle/performance", sensor_qos,
+      [this](std_msgs::msg::String::SharedPtr m) {
+        person_count_ = static_cast<int>(std::max(0.0, kv_double(m->data, "detections", 0.0)));
+      });
+    goal_state_sub_ = create_subscription<std_msgs::msg::String>(
+      "/navigation/goal_state", 10, [this](std_msgs::msg::String::SharedPtr m) {goal_state_ = m->data;});
+    planner_status_sub_ = create_subscription<std_msgs::msg::String>(
+      "/navigation/planner_status", 10, [this](std_msgs::msg::String::SharedPtr m) {planner_status_ = m->data;});
+    amcl_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "/amcl_pose", 10, [this](geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr m) {
+        pose_x_ = m->pose.pose.position.x;
+        pose_y_ = m->pose.pose.position.y;
+        const auto & q = m->pose.pose.orientation;
+        const double siny = 2.0 * (q.w * q.z + q.x * q.y);
+        const double cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+        heading_rad_ = std::atan2(siny, cosy);
+        have_pose_ = true;
+      });
+    goal_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      "/goal_pose", 10, [this](geometry_msgs::msg::PoseStamped::SharedPtr m) {
+        goal_x_ = m->pose.position.x;
+        goal_y_ = m->pose.position.y;
+        have_goal_ = true;
+      });
 
     publish_connected(false);
     publish_string(port_pub_, "-");
@@ -133,6 +257,14 @@ private:
     }
 
     if (!handshake_confirmed_) {
+      if (now >= next_host_hello_ && now < handshake_deadline_) {
+        if (!write_line("HOST:HELLO:" + std::to_string(host_session_token_))) {
+          close_serial(true);
+          next_reconnect_ = now;
+          return;
+        }
+        next_host_hello_ = now + std::chrono::milliseconds(500);
+      }
       if (now >= handshake_deadline_) {
         close_serial(true);
         next_reconnect_ = now;
@@ -147,12 +279,21 @@ private:
     }
 
     if (now >= next_status_) {
-      if (!write_line("STATUS")) {
+      if (!write_line("WINCH STATUS")) {
         close_serial(true);
         next_reconnect_ = now;
         return;
       }
       next_status_ = now + std::chrono::milliseconds(status_period_ms_);
+    }
+
+    if (hmi_sync_enabled_ && now >= next_hmi_sync_) {
+      if (!publish_hmi_sync()) {
+        close_serial(true);
+        next_reconnect_ = now;
+        return;
+      }
+      next_hmi_sync_ = now + std::chrono::milliseconds(hmi_sync_period_ms_);
     }
   }
 
@@ -221,8 +362,9 @@ private:
       }
 
       ::cfmakeraw(&tty);
-      ::cfsetispeed(&tty, B115200);
-      ::cfsetospeed(&tty, B115200);
+      const speed_t serial_speed = serial_baud_ == 1000000 ? B1000000 : B115200;
+      ::cfsetispeed(&tty, serial_speed);
+      ::cfsetospeed(&tty, serial_speed);
       tty.c_cflag |= static_cast<tcflag_t>(CLOCAL | CREAD);
       tty.c_cflag &= static_cast<tcflag_t>(~CSTOPB);
       tty.c_cflag &= static_cast<tcflag_t>(~CRTSCTS);
@@ -242,18 +384,27 @@ private:
       active_port_ = candidate;
       rx_buffer_.clear();
       handshake_confirmed_ = false;
+      awaiting_host_session_ = true;
       const auto now = std::chrono::steady_clock::now();
       last_rx_ = now;
-      handshake_deadline_ = now + std::chrono::milliseconds(1500);
+      const auto token64 = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
+      host_session_token_ = static_cast<std::uint32_t>(token64 & 0xFFFFFFFFU);
+      if (host_session_token_ == 0U) host_session_token_ = 1U;
+      handshake_deadline_ = now + std::chrono::milliseconds(3500);
+      next_host_hello_ = now + std::chrono::milliseconds(500);
       next_status_ = now + std::chrono::milliseconds(status_period_ms_);
+      next_hmi_sync_ = now + std::chrono::milliseconds(hmi_sync_period_ms_);
       publish_connected(false);
       publish_string(port_pub_, active_port_);
-      publish_string(state_pub_, "PROBING");
+      publish_string(state_pub_, "SYNCING_HOST_SESSION");
 
-      // Safe reconnect semantics: never inherit motion after a USB reconnect.
-      // A valid firmware answers STATUS with STATE:/TOP:/...; only then is the
-      // port advertised as CONNECTED. This avoids attaching to another ttyACM.
-      if (!write_line("STOP") || !write_line("STATUS")) {
+      // Current F411 firmware is session-bound: every normal command is rejected
+      // until HOST:HELLO is acknowledged. Do not send legacy STATUS/STOP first.
+      const char resync = '\n';
+      (void)::write(fd_, &resync, 1);
+      (void)::tcdrain(fd_);
+      if (!write_line("HOST:HELLO:" + std::to_string(host_session_token_))) {
         close_serial(true);
       }
       return;
@@ -269,6 +420,9 @@ private:
     rx_buffer_.clear();
     active_port_.clear();
     handshake_confirmed_ = false;
+    awaiting_host_session_ = false;
+    host_session_token_ = 0U;
+    host_transport_generation_ = 0U;
     publish_connected(false);
     publish_string(port_pub_, "-");
     if (publish_state) {
@@ -338,7 +492,49 @@ private:
   void parse_line(const std::string & line)
   {
     try {
-      if (line.rfind("STATE:", 0) == 0) {
+      if (awaiting_host_session_) {
+        const std::string expected = "ACK:HOST:SESSION:" + std::to_string(host_session_token_) + ":";
+        if (line.rfind(expected, 0) == 0) {
+          const std::string generation_text = trim_copy(line.substr(expected.size()));
+          std::size_t used = 0;
+          const unsigned long generation = std::stoul(generation_text, &used, 10);
+          if (used == generation_text.size() && generation > 0UL) {
+            host_transport_generation_ = static_cast<std::uint32_t>(generation);
+            awaiting_host_session_ = false;
+            confirm_connection();
+            // Reconnect is fail-safe: stop fork motion, then establish ROS/HMI state.
+            (void)write_line("STOP");
+            (void)write_line("ROS:1");
+            (void)write_line("WINCH STATUS");
+            (void)publish_hmi_sync();
+          }
+        }
+        return;
+      }
+      if (line.rfind("WINCH:STATE=", 0) == 0) {
+        const auto field = [&line](const std::string & key) -> std::string {
+          const std::string marker = key + "=";
+          const auto pos = line.find(marker);
+          if (pos == std::string::npos) return {};
+          const auto start = pos + marker.size();
+          const auto end = line.find(':', start);
+          return line.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        };
+        const std::string state = field("STATE");
+        if (!state.empty()) publish_string(state_pub_, state);
+        const std::string pwm = field("APPLIED").empty() ? field("PWM") : field("APPLIED");
+        if (!pwm.empty()) publish_double(pwm_pub_, std::stod(pwm));
+        const std::string top = field("TOP");
+        const std::string bottom = field("BOTTOM");
+        if (!top.empty()) publish_bool(top_pub_, top == "1");
+        if (!bottom.empty()) publish_bool(bottom_pub_, bottom == "1");
+        if (!state.empty()) {
+          std_msgs::msg::Int32 dir;
+          const std::string u = upper_copy(state);
+          dir.data = u.find("UP") != std::string::npos ? 1 : (u.find("DOWN") != std::string::npos ? -1 : 0);
+          direction_pub_->publish(dir);
+        }
+      } else if (line.rfind("STATE:", 0) == 0) {
         confirm_connection();
         publish_string(state_pub_, trim_copy(line.substr(6)));
       } else if (line.rfind("TOP:", 0) == 0) {
@@ -374,6 +570,88 @@ private:
     }
     handshake_confirmed_ = true;
     publish_connected(true);
+    publish_string(state_pub_, "CONNECTED");
+  }
+
+  bool send_f4x3(const char * domain, const char * group, std::uint32_t & seq,
+    std::uint32_t age_ms, const std::string & payload)
+  {
+    if (!handshake_confirmed_ || host_session_token_ == 0U) return true;
+    std::ostringstream body;
+    body << "F4X3:" << domain << ':' << group << ":3:" << host_session_token_
+         << ':' << ++seq << ':' << age_ms << ':' << payload.size() << ':' << payload;
+    const std::string signed_part = body.str();
+    std::ostringstream line;
+    line << signed_part << ':' << std::uppercase << std::hex << std::setw(8)
+         << std::setfill('0') << wire_crc32(signed_part);
+    return write_line(line.str());
+  }
+
+  bool publish_hmi_sync()
+  {
+    if (fd_ < 0 || !handshake_confirmed_ || awaiting_host_session_) return true;
+
+    const auto now = std::chrono::steady_clock::now();
+    const auto age_ms = [now](const std::chrono::steady_clock::time_point & stamp) -> std::uint32_t {
+      if (stamp.time_since_epoch().count() == 0) return 0xFFFFFFFFU;
+      if (now <= stamp) return 0U;
+      const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - stamp).count();
+      return static_cast<std::uint32_t>(std::min<std::int64_t>(ms, 0xFFFFFFFELL));
+    };
+    const auto b = [](bool v) {return v ? 1 : 0;};
+
+    // Same truth source as the local GUI: current ROS telemetry/health state.
+    // Heartbeat is sent every sync cycle (< F411 2.5 s steady timeout).
+    const std::uint32_t imu_age = age_ms(last_imu_data_rx_);
+    const bool imu_online = imu_connected_ && (imu_age == 0xFFFFFFFFU || imu_age <= 3000U);
+    const std::uint32_t cam_age = age_ms(last_camera_state_rx_);
+    const bool camera_online = camera_connected_ && (cam_age == 0xFFFFFFFFU || cam_age <= 4000U);
+    const std::uint32_t yolo_age = age_ms(last_yolo_rx_);
+    const bool perception_online = camera_online && camera_healthy_ &&
+      (yolo_perf_seen_ ? yolo_age <= 4000U : true);
+
+    if (!write_line("ROS:1") ||
+        !write_line(std::string("IMU:") + (imu_online ? "1" : "0")) ||
+        !write_line(std::string("IMUSTATUS:") + (imu_online ? "READY" : "OFFLINE")) ||
+        !write_line(std::string("CAM:") + (camera_online ? "1" : "0")) ||
+        !write_line(std::string("PER:") + (perception_online ? "1" : "0")) ||
+        !write_line(std::string("MOTION:") + (motion_ready_ ? "1" : "0")) ||
+        !write_line(std::string("NAV2:") + (nav2_ready_ ? "1" : "0")) ||
+        !write_line(std::string("ESC:") + (esc_ready_ ? "1" : "0")) ||
+        !write_line(std::string("VESC_LINK:") + ((drive_connected_ || steer_connected_) ? "1" : "0")) ||
+        !write_line(std::string("ENC:") + (steer_connected_ ? "1" : "0")) ||
+        !write_line("FPS:" + std::to_string(static_cast<int>(std::clamp(std::lround(yolo_fps_), 0L, 255L))))) {
+      return false;
+    }
+
+    // Keep the F411 domain freshness model satisfied using the same session-bound
+    // protocol as the current firmware. Only lightweight groups needed for the
+    // sensor/HMI status are mirrored here; no actuator command is bypassed.
+    {
+      std::ostringstream payload;
+      payload.setf(std::ios::fixed);
+      payload << b(camera_online) << ',' << b(perception_online) << ','
+              << std::setprecision(2) << yolo_fps_ << ',' << yolo_inference_ms_
+              << ",0,0,ROS," << b(yolo_perf_seen_);
+      if (!send_f4x3("PER", "CAM", per_cam_seq_, cam_age, payload.str())) return false;
+    }
+    {
+      const double imu_yaw_deg = imu_yaw_rad_ * 180.0 / M_PI;
+      std::ostringstream payload;
+      payload.setf(std::ios::fixed);
+      payload << b(imu_online) << ',' << std::setprecision(2) << imu_yaw_deg << ','
+              << imu_yaw_deg << ",0.00";
+      if (!send_f4x3("NAV", "IMU", nav_imu_seq_, imu_age, payload.str())) return false;
+    }
+    {
+      std::ostringstream payload;
+      payload.setf(std::ios::fixed);
+      payload << b(nav2_ready_ || localization_ready_) << ',' << b(nav2_ready_)
+              << ",0,0,0.000,0.000," << (nav2_ready_ ? "READY" : "WAIT")
+              << ',' << (nav2_ready_ ? "READY" : "WAIT") << ",WAIT";
+      if (!send_f4x3("NAV", "NAV2", nav_nav2_seq_, 0U, payload.str())) return false;
+    }
+    return true;
   }
 
   void handle_command(const std::string & input)
@@ -391,7 +669,10 @@ private:
   static bool valid_command(const std::string & command)
   {
     if (command == "UP" || command == "DOWN" || command == "STOP" ||
-      command == "STATUS" || command == "LIMITS" || command == "SERVOTEST")
+      command == "UP HOME" || command == "UP 1" || command == "UP 2" ||
+      command == "DOWN HOME" || command == "DOWN 1" || command == "DOWN 2" ||
+      command == "STATUS" || command == "WINCH STATUS" || command == "LIMITS" || command == "CONFIG" ||
+      command == "SERVOTEST")
     {
       return true;
     }
@@ -443,23 +724,84 @@ private:
   }
 
   std::string port_parameter_;
+  std::int64_t serial_baud_{1000000};
   std::int64_t reconnect_interval_ms_{1000};
   std::int64_t status_period_ms_{1000};
   std::int64_t rx_timeout_ms_{5000};
+  bool hmi_sync_enabled_{true};
+  std::int64_t hmi_sync_period_ms_{500};
+
+  bool esc_ready_{false};
+  bool drive_connected_{false};
+  bool steer_connected_{false};
+  bool motion_ready_{false};
+  bool nav2_ready_{false};
+  bool localization_ready_{false};
+  bool imu_connected_{false};
+  bool camera_connected_{false};
+  bool camera_healthy_{false};
+  bool yolo_perf_seen_{false};
+  double drive_speed_mps_{0.0};
+  double steering_rad_{0.0};
+  double imu_yaw_rad_{0.0};
+  double yolo_fps_{0.0};
+  double yolo_inference_ms_{0.0};
+  int yolo_detections_{0};
+  int person_count_{0};
+  std::string goal_state_;
+  std::string planner_status_;
+  bool have_pose_{false};
+  bool have_goal_{false};
+  double pose_x_{0.0};
+  double pose_y_{0.0};
+  double heading_rad_{0.0};
+  double goal_x_{0.0};
+  double goal_y_{0.0};
+
   int fd_{-1};
   std::string active_port_;
   std::string rx_buffer_;
   std::optional<bool> connected_state_;
   bool handshake_confirmed_{false};
+  bool awaiting_host_session_{false};
+  std::uint32_t host_session_token_{0U};
+  std::uint32_t host_transport_generation_{0U};
+  std::uint32_t per_cam_seq_{0U};
+  std::uint32_t nav_imu_seq_{0U};
+  std::uint32_t nav_nav2_seq_{0U};
   std::size_t candidate_cursor_{0};
 
   std::chrono::steady_clock::time_point next_reconnect_{std::chrono::steady_clock::now()};
   std::chrono::steady_clock::time_point handshake_deadline_{std::chrono::steady_clock::now()};
+  std::chrono::steady_clock::time_point next_host_hello_{std::chrono::steady_clock::now()};
   std::chrono::steady_clock::time_point next_status_{std::chrono::steady_clock::now()};
+  std::chrono::steady_clock::time_point next_hmi_sync_{std::chrono::steady_clock::now()};
   std::chrono::steady_clock::time_point last_rx_{std::chrono::steady_clock::now()};
+  std::chrono::steady_clock::time_point last_imu_data_rx_{};
+  std::chrono::steady_clock::time_point last_camera_state_rx_{};
+  std::chrono::steady_clock::time_point last_yolo_rx_{};
 
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr command_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr esc_ready_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr drive_connected_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr steer_connected_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr motion_ready_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr nav2_ready_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr localization_ready_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr imu_connected_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr camera_connected_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr camera_healthy_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_data_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr drive_speed_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr steering_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr yolo_perf_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr person_perf_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr goal_state_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr planner_status_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr amcl_pose_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pose_sub_;
+
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr connected_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr port_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;

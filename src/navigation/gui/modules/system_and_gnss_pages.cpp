@@ -650,10 +650,18 @@ class ExperimentWorkspacePage : public QWidget {
   // Called by the floating BAB IV menu: open a specific report leaf.
   void selectLeaf(const QString &id) {
     if (!leafIndex_.contains(id)) return;
+    const bool leavingImuYaw = currentId_ == QStringLiteral("4.1.3") && id != QStringLiteral("4.1.3");
     if (recording_) stopRecording(true);
     if (!currentId_.isEmpty()) saveTableState();
     currentId_ = id;
     currentTableIndex_ = 0;
+    // 4.1.3 mengikuti metode pengujian LiDAR: satu Run = satu titik/ringkasan
+    // pengujian. Karena itu grafik ringkasan tabel menjadi tampilan default.
+    {
+      const QSignalBlocker blocker(plotMode_);
+      if (currentId_ == QStringLiteral("4.1.3")) plotMode_->setCurrentIndex(1);
+      else if (leavingImuYaw) plotMode_->setCurrentIndex(0);
+    }
     applyLeaf();
   }
   // Called by MainWindow with the same annotated QImage already shown by CameraPage.
@@ -1071,6 +1079,11 @@ class ExperimentWorkspacePage : public QWidget {
       "lidar_driver_status.raw","lidar_safety_health.raw","lidar_safety_healthy",
       // IMU: fused message plus every component topic already published by imu_node.
       "imu.roll_rad","imu.pitch_rad","imu.yaw_rad","imu.qx","imu.qy","imu.qz","imu.qw","imu.gx","imu.gy","imu.gz","imu.ax","imu.ay","imu.az","imu.orientation_valid","imu.var_roll","imu.var_pitch","imu.var_yaw","imu.var_gx","imu.var_gy","imu.var_gz","imu.var_ax","imu.var_ay","imu.var_az","imu.rate_hz","imu.period_ms","imu.timestamp_jitter_ms","imu.latency_ms","imu.message_count","imu.publisher_count","imu.frame_id","imu.measurement_stamp_sec","imu_status.yaw_residual",
+      "imu_raw.roll_rad","imu_raw.pitch_rad","imu_raw.yaw_rad","imu_raw.qx","imu_raw.qy","imu_raw.qz","imu_raw.qw","imu_raw.gx","imu_raw.gy","imu_raw.gz","imu_raw.ax","imu_raw.ay","imu_raw.az","imu_raw.orientation_valid","imu_raw.rate_hz","imu_raw.period_ms","imu_raw.timestamp_jitter_ms","imu_raw.latency_ms","imu_raw.message_count","imu_raw.publisher_count","imu_raw.frame_id","imu_raw.source_topic","imu_raw.raw_ros_level","imu_raw.measurement_stamp_sec",
+      "imu_raw_gyro.gx","imu_raw_gyro.gy","imu_raw_gyro.gz","imu_raw_gyro.rate_hz","imu_raw_gyro.period_ms","imu_raw_gyro.timestamp_jitter_ms","imu_raw_gyro.latency_ms","imu_raw_gyro.message_count","imu_raw_gyro.publisher_count","imu_raw_gyro.frame_id","imu_raw_gyro.measurement_stamp_sec",
+      "imu_raw_accel.ax","imu_raw_accel.ay","imu_raw_accel.az","imu_raw_accel.rate_hz","imu_raw_accel.period_ms","imu_raw_accel.timestamp_jitter_ms","imu_raw_accel.latency_ms","imu_raw_accel.message_count","imu_raw_accel.publisher_count","imu_raw_accel.frame_id","imu_raw_accel.measurement_stamp_sec",
+      "imu_raw_euler.roll_rad","imu_raw_euler.pitch_rad","imu_raw_euler.yaw_rad","imu_raw_euler.rate_hz","imu_raw_euler.period_ms","imu_raw_euler.timestamp_jitter_ms","imu_raw_euler.latency_ms","imu_raw_euler.message_count","imu_raw_euler.publisher_count","imu_raw_euler.frame_id","imu_raw_euler.measurement_stamp_sec",
+      "imu_raw_mag.mx","imu_raw_mag.my","imu_raw_mag.mz","imu_raw_mag.rate_hz","imu_raw_mag.period_ms","imu_raw_mag.timestamp_jitter_ms","imu_raw_mag.latency_ms","imu_raw_mag.message_count","imu_raw_mag.publisher_count","imu_raw_mag.frame_id","imu_raw_mag.measurement_stamp_sec",
       "imu_gyro.gx","imu_gyro.gy","imu_gyro.gz","imu_gyro.var_gx","imu_gyro.var_gy","imu_gyro.var_gz","imu_gyro.rate_hz","imu_gyro.period_ms","imu_gyro.timestamp_jitter_ms","imu_gyro.latency_ms","imu_gyro.message_count","imu_gyro.publisher_count","imu_gyro.frame_id","imu_gyro.measurement_stamp_sec",
       "imu_accel.ax","imu_accel.ay","imu_accel.az","imu_accel.var_ax","imu_accel.var_ay","imu_accel.var_az","imu_accel.rate_hz","imu_accel.period_ms","imu_accel.timestamp_jitter_ms","imu_accel.latency_ms","imu_accel.message_count","imu_accel.publisher_count","imu_accel.frame_id","imu_accel.measurement_stamp_sec",
       "imu_euler.roll_rad","imu_euler.pitch_rad","imu_euler.yaw_rad","imu_euler.rate_hz","imu_euler.message_count","imu_euler.publisher_count","imu_euler.frame_id","imu_euler.measurement_stamp_sec",
@@ -1389,11 +1402,11 @@ class ExperimentWorkspacePage : public QWidget {
     };
   }
   bool isSpecial41MultiRowLeaf() const {
-    // BAB IV TA terbaru: 4.1.1 komunikasi dan 4.1.3/4.1.4 raw data
-    // membutuhkan beberapa baris sampel; 4.1.2 LiDAR adalah ringkasan akurasi
-    // per jarak referensi sehingga satu Run menghasilkan satu baris statistik.
+    // 4.1.3 IMU yaw-only sekarang sama konsepnya dengan 4.1.2 LiDAR:
+    // satu Run menghasilkan satu baris statistik, bukan baris per detik/sampel.
+    // 4.1.1/4.1.4/4.1.5 tetap memakai bentuk multi-row yang sudah berjalan.
     return currentId_==QStringLiteral("4.1.1") ||
-           currentId_==QStringLiteral("4.1.3") || currentId_==QStringLiteral("4.1.4") ||
+           currentId_==QStringLiteral("4.1.4") ||
            currentId_==QStringLiteral("4.1.5");
   }
   QString sensorRatePath(const QString &prefix) const {
@@ -1419,10 +1432,12 @@ class ExperimentWorkspacePage : public QWidget {
   QString preferredImuYawPath() const {
     const auto &rows=sessions_.value(currentId_).rawRows;
     for(auto it=rows.crbegin();it!=rows.crend();++it){
+      if(it->contains(QStringLiteral("imu_raw.yaw_rad")))return QStringLiteral("imu_raw.yaw_rad");
+      if(it->contains(QStringLiteral("imu_raw_euler.yaw_rad")))return QStringLiteral("imu_raw_euler.yaw_rad");
       if(it->contains(QStringLiteral("imu.yaw_rad")))return QStringLiteral("imu.yaw_rad");
       if(it->contains(QStringLiteral("imu_euler.yaw_rad")))return QStringLiteral("imu_euler.yaw_rad");
     }
-    return QStringLiteral("imu.yaw_rad");
+    return QStringLiteral("imu_raw.yaw_rad");
   }
   QVariant messageDropoutPct(const QString &prefix) const {
     const double target=number(parameterValue(sensorTargetKey(prefix)));
@@ -1457,8 +1472,8 @@ class ExperimentWorkspacePage : public QWidget {
     if(rows.isEmpty())return out;
     if(currentId_==QStringLiteral("4.1.1")){
       struct SensorDef{const char*label;const char*topic;const char*prefix;const char*targetKey;const char*frameFallback;};
-      const SensorDef defs[]={{"LiDAR","/scan","lidar","target_lidar_rate_hz","laser_frame"},
-                              {"IMU","/imu/data","imu","target_imu_rate_hz","imu_link"},
+      const SensorDef defs[]={{"LiDAR","/scan_safety_raw","lidar_raw","target_lidar_rate_hz","lidar_link"},
+                              {"IMU","/imu/raw/data","imu_raw","target_imu_rate_hz","imu_link"},
                               {"Odometri","/odom","odom","target_odom_rate_hz","odom"}};
       for(const auto &d:defs){
         QString prefix=QString::fromUtf8(d.prefix);
@@ -1514,18 +1529,18 @@ class ExperimentWorkspacePage : public QWidget {
       for(int idx:sampledIndices(8)){
         const QVariantMap &raw=rows.at(idx);QVariantMap row;
         row[QStringLiteral("Sampel")]=sample++;
-        row[QStringLiteral("qx")]=raw.value(QStringLiteral("imu.qx"));
-        row[QStringLiteral("qy")]=raw.value(QStringLiteral("imu.qy"));
-        row[QStringLiteral("qz")]=raw.value(QStringLiteral("imu.qz"));
-        row[QStringLiteral("qw")]=raw.value(QStringLiteral("imu.qw"));
-        double yaw=number(raw.value(QStringLiteral("imu.yaw_rad")));
-        if(!std::isfinite(yaw))yaw=number(raw.value(QStringLiteral("imu_euler.yaw_rad")));
+        row[QStringLiteral("qx")]=raw.value(QStringLiteral("imu_raw.qx"));
+        row[QStringLiteral("qy")]=raw.value(QStringLiteral("imu_raw.qy"));
+        row[QStringLiteral("qz")]=raw.value(QStringLiteral("imu_raw.qz"));
+        row[QStringLiteral("qw")]=raw.value(QStringLiteral("imu_raw.qw"));
+        double yaw=number(raw.value(QStringLiteral("imu_raw.yaw_rad")));
+        if(!std::isfinite(yaw))yaw=number(raw.value(QStringLiteral("imu_raw_euler.yaw_rad")));
         if(std::isfinite(yaw))row[QStringLiteral("Yaw (deg)")]=yaw*180.0/kPi;
-        QVariant gz=raw.value(QStringLiteral("imu.gz"));
-        if(!gz.isValid()||!std::isfinite(number(gz)))gz=raw.value(QStringLiteral("imu_gyro.gz"));
+        QVariant gz=raw.value(QStringLiteral("imu_raw.gz"));
+        if(!gz.isValid()||!std::isfinite(number(gz)))gz=raw.value(QStringLiteral("imu_raw_gyro.gz"));
         row[QStringLiteral("Angular z")]=gz;
-        QVariant stamp=raw.value(QStringLiteral("imu.measurement_stamp_sec"));
-        if(!stamp.isValid())stamp=raw.value(QStringLiteral("imu_euler.measurement_stamp_sec"));
+        QVariant stamp=raw.value(QStringLiteral("imu_raw.measurement_stamp_sec"));
+        if(!stamp.isValid())stamp=raw.value(QStringLiteral("imu_raw_euler.measurement_stamp_sec"));
         row[QStringLiteral("Timestamp")]=stamp;
         out<<row;
       }
@@ -1560,12 +1575,12 @@ class ExperimentWorkspacePage : public QWidget {
         return row;
       };
       if(condition.contains(QStringLiteral("diam"),Qt::CaseInsensitive)){
-        out<<syncRow(QStringLiteral("LiDAR"),QStringLiteral("lidar"));
-        out<<syncRow(QStringLiteral("IMU"),QStringLiteral("imu"));
+        out<<syncRow(QStringLiteral("LiDAR"),preferredLidar41Prefix());
+        out<<syncRow(QStringLiteral("IMU"),QStringLiteral("imu_raw"));
         out<<syncRow(QStringLiteral("Odom"),QStringLiteral("odom"));
       }else{
-        const QVariantMap l=syncRow(QStringLiteral("LiDAR"),QStringLiteral("lidar"));
-        const QVariantMap i=syncRow(QStringLiteral("IMU"),QStringLiteral("imu"));
+        const QVariantMap l=syncRow(QStringLiteral("LiDAR"),preferredLidar41Prefix());
+        const QVariantMap i=syncRow(QStringLiteral("IMU"),QStringLiteral("imu_raw"));
         const QVariantMap o=syncRow(QStringLiteral("Odom"),QStringLiteral("odom"));
         QVariantMap row;
         row[QStringLiteral("Kondisi")]=condition;
@@ -1726,6 +1741,33 @@ class ExperimentWorkspacePage : public QWidget {
         if(key==QStringLiteral("timestamp jitter"))return aggregate(preferredLidar41Prefix()+QStringLiteral(".timestamp_jitter_ms"),QStringLiteral("mean"));
         if(key==QStringLiteral("rmse range"))return errorAggregate(preferredLidar41Prefix()+QStringLiteral(".range_center_m"),gtDistance,QStringLiteral("rmse"));
         if(key==QStringLiteral("status"))return availableStatus();
+      }
+      if(currentId_==QStringLiteral("4.1.3")){
+        const QString yawPath=preferredImuYawPath();
+        const QVector<double> yawSamples=values(yawPath);
+        if(key==QStringLiteral("pengujian"))return variant.trimmed().isEmpty()?QVariant(QStringLiteral("R1")):QVariant(variant);
+        if(key==QStringLiteral("sudut referensi (deg)"))return std::isfinite(gtYawDeg)?QVariant(gtYawDeg):QVariant();
+        if(key==QStringLiteral("yaw imu (deg)")){
+          if(yawSamples.isEmpty())return {};
+          double yawMean=std::numeric_limits<double>::quiet_NaN();
+          if(std::isfinite(gtYaw)){
+            const QVariant meanError=errorAggregate(yawPath,gtYaw,QStringLiteral("mean"),true);
+            if(meanError.isValid())yawMean=normalizeAngle(gtYaw+meanError.toDouble());
+          }else{
+            double sumSin=0.0,sumCos=0.0;
+            for(double value:yawSamples){sumSin+=std::sin(value);sumCos+=std::cos(value);}
+            if(std::abs(sumSin)>1e-12||std::abs(sumCos)>1e-12)yawMean=std::atan2(sumSin,sumCos);
+          }
+          if(!std::isfinite(yawMean))return {};
+          double yawDeg=yawMean*180.0/kPi;
+          if(yawDeg<0.0)yawDeg+=360.0;
+          if(yawDeg>=359.999999)yawDeg=0.0;
+          return yawDeg;
+        }
+        if(key==QStringLiteral("error yaw (deg)"))return degrees(errorAggregate(yawPath,gtYaw,QStringLiteral("mean"),true));
+        if(key==QStringLiteral("mae yaw (deg)"))return degrees(errorAggregate(yawPath,gtYaw,QStringLiteral("mae"),true));
+        if(key==QStringLiteral("rmse yaw (deg)"))return degrees(errorAggregate(yawPath,gtYaw,QStringLiteral("rmse"),true));
+        if(key==QStringLiteral("status"))return yawSamples.isEmpty()?QVariant(QStringLiteral("Tidak ada yaw")):QVariant(QStringLiteral("Valid"));
       }
       if(currentId_==QStringLiteral("4.1.3b")){
         if(key==QStringLiteral("yaw ref"))return std::isfinite(gtYawDeg)?QVariant(gtYawDeg):QVariant();
@@ -2164,6 +2206,9 @@ class ExperimentWorkspacePage : public QWidget {
       loading_=false;
     }
     table_->resizeColumnsToContents();
+    // Saat mode ringkasan dipakai (default 4.1.3), grafik ikut terisi dari
+    // baris pengujian aktif tanpa menunggu ekspor/berpindah halaman.
+    refreshSummaryPlotIfNeeded();
   }
   void saveTableState(){
     if(currentId_.isEmpty())return;
@@ -2226,6 +2271,7 @@ class ExperimentWorkspacePage : public QWidget {
     if (path.startsWith(QStringLiteral("gnss_fix"))) return QStringLiteral("GNSS /gnss/fix_raw");
     if (path.startsWith(QStringLiteral("gnss_vel"))) return QStringLiteral("kecepatan GNSS");
     if (path.startsWith(QStringLiteral("gnss_cog"))) return QStringLiteral("COG /gnss/cog_heading_fusion");
+    if (path.startsWith(QStringLiteral("imu_raw"))) return QStringLiteral("IMU /imu/raw/data");
     if (path.startsWith(QStringLiteral("imu"))) return QStringLiteral("IMU /imu/data");
     if (path.startsWith(QStringLiteral("esc_"))) return QStringLiteral("ESC");
     if (path.startsWith(QStringLiteral("foc_telemetry"))) return QStringLiteral("ESC FOC /esc/foc/telemetry");
@@ -2288,6 +2334,58 @@ class ExperimentWorkspacePage : public QWidget {
   GraphSnapshot liveDataForGraph(int index) const {
     GraphSnapshot out;
     const ExperimentSpec &s = spec();
+    if(currentId_==QStringLiteral("4.1.3")){
+      // Diagnostic live view stays available, but all displayed IMU quantities
+      // are yaw-only and converted to degrees to match Persamaan (2.8)-(2.11).
+      out.xLabel=QStringLiteral("Waktu pengambilan (s)");
+      QVector<QPointF> yawDegPoints;
+      const auto &rr=sessions_.value(currentId_).rawRows;
+      if(!rr.isEmpty()){
+        const QString yawPath=preferredImuYawPath();
+        for(const QVariantMap &row:rr){
+          const double t=number(row.value(QStringLiteral("elapsed_s")));
+          const double yaw=number(row.value(yawPath));
+          if(std::isfinite(t)&&std::isfinite(yaw))yawDegPoints<<QPointF(t,yaw*180.0/kPi);
+        }
+      }else{
+        const auto points=sessions_.value(currentId_).liveSeries.value(QStringLiteral("Yaw"));
+        for(const QPointF &point:points)yawDegPoints<<QPointF(point.x(),point.y()*180.0/kPi);
+      }
+      const double refDeg=number(groundTruth(QStringLiteral("gt_yaw_deg")));
+      const double refRad=std::isfinite(refDeg)?refDeg*kPi/180.0:std::numeric_limits<double>::quiet_NaN();
+      if(index==0){
+        out.yLabel=QStringLiteral("Yaw (deg)");
+        if(!yawDegPoints.isEmpty())out.series[QStringLiteral("Yaw IMU")]=yawDegPoints;
+        if(std::isfinite(refDeg)&&!yawDegPoints.isEmpty())
+          out.series[QStringLiteral("Sudut Referensi")]=QVector<QPointF>{QPointF(yawDegPoints.first().x(),refDeg),QPointF(yawDegPoints.last().x(),refDeg)};
+      }else if(index==1){
+        out.yLabel=QStringLiteral("Error Yaw (deg)");
+        if(std::isfinite(refRad)){
+          QVector<QPointF> errors;
+          for(const QPointF &point:yawDegPoints){
+            const double e=normalizeAngle(point.y()*kPi/180.0-refRad)*180.0/kPi;
+            errors<<QPointF(point.x(),e);
+          }
+          if(!errors.isEmpty())out.series[QStringLiteral("Error Yaw")]=errors;
+        }
+      }else{
+        out.yLabel=QStringLiteral("Error (deg)");
+        if(std::isfinite(refRad)){
+          QVector<QPointF> mae,rmse;double sumAbs=0.0,sumSq=0.0;int n=0;
+          for(const QPointF &point:yawDegPoints){
+            const double e=normalizeAngle(point.y()*kPi/180.0-refRad)*180.0/kPi;
+            ++n;sumAbs+=std::abs(e);sumSq+=e*e;
+            mae<<QPointF(point.x(),sumAbs/n);
+            rmse<<QPointF(point.x(),std::sqrt(sumSq/n));
+          }
+          if(!mae.isEmpty())out.series[QStringLiteral("MAE Yaw")]=mae;
+          if(!rmse.isEmpty())out.series[QStringLiteral("RMSE Yaw")]=rmse;
+        }
+      }
+      if(out.series.isEmpty())
+        out.emptyMessage=QStringLiteral("BELUM ADA DATA YAW\nIsi Sudut Referensi, pastikan IMU online, lalu Mulai Rekam Run.");
+      return out;
+    }
     if (index < 0 || index >= s.graphs.size()) {
       out.series = sessions_.value(currentId_).liveSeries;
       if (out.series.isEmpty()) out.emptyMessage = emptyMessageForSeries(
@@ -2345,9 +2443,49 @@ class ExperimentWorkspacePage : public QWidget {
     }
   }
   void refreshSummaryForCard(int cardIndex, const QString &title, GraphFullscreenDialog *target = nullptr) {
-    Q_UNUSED(cardIndex);
     QMap<QString, QVector<QPointF>> series;
     const QStringList cols = currentColumns();
+    if(currentId_==QStringLiteral("4.1.3")){
+      const int refCol=cols.indexOf(QStringLiteral("Sudut Referensi (deg)"));
+      const int yawCol=cols.indexOf(QStringLiteral("Yaw IMU (deg)"));
+      const int errCol=cols.indexOf(QStringLiteral("Error Yaw (deg)"));
+      const int maeCol=cols.indexOf(QStringLiteral("MAE Yaw (deg)"));
+      const int rmseCol=cols.indexOf(QStringLiteral("RMSE Yaw (deg)"));
+      auto addColumn=[&](const QString &label,int column){
+        if(refCol<0||column<0)return;
+        for(int r=0;r<table_->rowCount();++r){
+          double x=0.0,y=0.0;
+          if(!table_->item(r,refCol)||!table_->item(r,column))continue;
+          if(!numericText(table_->item(r,refCol)->text(),x)||!numericText(table_->item(r,column)->text(),y))continue;
+          series[label]<<QPointF(x,y);
+        }
+      };
+      QString yLabel;
+      if(cardIndex==0){
+        addColumn(QStringLiteral("Yaw IMU"),yawCol);
+        if(refCol>=0){
+          for(int r=0;r<table_->rowCount();++r){
+            double x=0.0;
+            if(table_->item(r,refCol)&&numericText(table_->item(r,refCol)->text(),x))
+              series[QStringLiteral("Sudut Referensi")]<<QPointF(x,x);
+          }
+        }
+        yLabel=QStringLiteral("Yaw (deg)");
+      }else if(cardIndex==1){
+        addColumn(QStringLiteral("Error Yaw"),errCol);
+        yLabel=QStringLiteral("Error Yaw (deg)");
+      }else{
+        addColumn(QStringLiteral("MAE Yaw"),maeCol);
+        addColumn(QStringLiteral("RMSE Yaw"),rmseCol);
+        yLabel=QStringLiteral("Error (deg)");
+      }
+      const QString empty=series.isEmpty()?QStringLiteral("BELUM ADA DATA RINGKASAN\nSatu Start/Stop Run akan menambahkan satu hasil pengujian yaw."):QString();
+      if(target)target->updateData(title,QStringLiteral("Sudut Referensi (deg)"),yLabel,series,false,empty);
+      else if(cardIndex>=0&&cardIndex<graphCards_.size())
+        graphCards_[cardIndex]->setData(title,QStringLiteral("Sudut Referensi (deg)"),yLabel,series,false,empty);
+      return;
+    }
+    Q_UNUSED(cardIndex);
     for (int c = 1; c < cols.size(); ++c) {
       for (int r = 0; r < table_->rowCount(); ++r) {
         double y = 0.0;
@@ -2381,9 +2519,10 @@ class ExperimentWorkspacePage : public QWidget {
       fullscreenDialog_->setWindowTitle(title);
     }
     fullscreenGraphIndex_ = index;
-    if (plotMode_->currentIndex() == 0)
-    fullscreenDialog_->updateData(title, QStringLiteral("Waktu (s)"), QStringLiteral("Nilai"), session().liveSeries, true);
-    else refreshSummaryForCard(index, title, fullscreenDialog_);
+    if (plotMode_->currentIndex() == 0) {
+      const GraphSnapshot snap=liveDataForGraph(index);
+      fullscreenDialog_->updateData(title,snap.xLabel,snap.yLabel,snap.series,snap.connectPoints,snap.emptyMessage);
+    } else refreshSummaryForCard(index, title, fullscreenDialog_);
     fullscreenDialog_->show();
     fullscreenDialog_->raise();
     fullscreenDialog_->activateWindow();

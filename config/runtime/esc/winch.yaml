@@ -4,7 +4,11 @@ winch_serial_node:
     # ttyUSB* is intentionally not auto-selected so the ESC CP210x port cannot
     # be stolen by the winch process.
     port: auto
-    baud: 115200
+    baud: 1000000
     reconnect_interval_ms: 1000
     status_period_ms: 1000
     rx_timeout_ms: 5000
+
+    # Mirror ROS telemetry to the STM32 TFT/HMI; display-only, no PWM bypass.
+    hmi_sync_enabled: true
+    hmi_sync_period_ms: 500

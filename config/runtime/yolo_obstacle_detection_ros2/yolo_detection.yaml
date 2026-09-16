@@ -6,7 +6,7 @@
     iou_threshold: 0.45
     inference_size: 640
     max_inference_fps: 30.0
-    max_visualization_fps: 15.0
+    max_visualization_fps: 6.0
     use_tensorrt: true
     use_cuda: true
     require_cuda: true

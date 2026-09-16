@@ -43,8 +43,16 @@ public:
     outlier_rel_ = std::max(0.0, declare_parameter<double>("outlier_rel", 0.08));
     isolated_min_range_m_ = std::max(0.0, declare_parameter<double>("isolated_min_range_m", 1.0));
     temporal_jump_m_ = std::max(0.01, declare_parameter<double>("temporal_jump_m", 0.60));
+    const bool navigation_output = output_topic_ == "/scan_nav";
+    output_rate_limit_hz_ = std::max(
+      0.0, declare_parameter<double>(
+        "output_rate_limit_hz", navigation_output ? 4.0 : 0.0));
 
-    auto qos = rclcpp::SensorDataQoS().keep_last(5);
+    // Navigation consumers (AMCL/costmaps) must prefer the newest scan under
+    // Jetson load instead of accumulating stale frames.  Keep the safety
+    // instance at its existing depth/rate; only /scan_nav uses depth=1 and a
+    // bounded 4 Hz default.  /scan_safety therefore remains full-rate.
+    auto qos = rclcpp::SensorDataQoS().keep_last(navigation_output ? 1 : 5);
     pub_ = create_publisher<sensor_msgs::msg::LaserScan>(output_topic_, qos);
     if (!legacy_output_topic_.empty() && legacy_output_topic_ != output_topic_) {
       legacy_pub_ = create_publisher<sensor_msgs::msg::LaserScan>(legacy_output_topic_, qos);
@@ -54,9 +62,9 @@ public:
 
     RCLCPP_INFO(
       get_logger(),
-      "[SCAN-FILTER-CPP] READY %s -> %s mask=[%.2f,%.2f]x[%.2f,%.2f] denoise=%s cap=%.2f",
+      "[SCAN-FILTER-CPP] READY %s -> %s mask=[%.2f,%.2f]x[%.2f,%.2f] denoise=%s cap=%.2f rate_limit=%.1fHz",
       input_topic_.c_str(), output_topic_.c_str(), min_x_, max_x_, min_y_, max_y_,
-      denoise_enabled_ ? "on" : "off", max_output_range_);
+      denoise_enabled_ ? "on" : "off", max_output_range_, output_rate_limit_hz_);
   }
 
 private:
@@ -125,6 +133,18 @@ private:
   {
     if (msg->header.frame_id.empty() || msg->ranges.empty()) {
       return;
+    }
+
+    if (output_rate_limit_hz_ > 0.0) {
+      const auto wall_now = std::chrono::steady_clock::now();
+      if (last_accepted_wall_.time_since_epoch().count() != 0) {
+        const double elapsed =
+          std::chrono::duration<double>(wall_now - last_accepted_wall_).count();
+        if (elapsed < (1.0 / output_rate_limit_hz_)) {
+          return;
+        }
+      }
+      last_accepted_wall_ = wall_now;
     }
 
     geometry_msgs::msg::TransformStamped tf;
@@ -281,6 +301,8 @@ private:
   double outlier_rel_{0.08};
   double isolated_min_range_m_{1.0};
   double temporal_jump_m_{0.60};
+  double output_rate_limit_hz_{0.0};
+  std::chrono::steady_clock::time_point last_accepted_wall_{};
 
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_;
   rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr pub_;

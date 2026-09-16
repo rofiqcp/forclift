@@ -124,7 +124,13 @@ def generate_launch_description():
             # soon as robot_state_publisher has delivered the static TF.
             'fail_open_on_tf_error': False,
             'denoise_enabled': True,
-            'max_output_range': 5.5,
+            # BAB 4.2 mapping target: pass every verified 8 Hz physical revolution.
+            'output_rate_limit_hz': 8.0,
+            # Do not apply a second hard-coded range cap here. The LiDAR
+            # driver's lidar.yaml range_max is the single source of truth, so
+            # GUI SAVE YAML changes propagate through /scan_nav immediately
+            # after the isolated lidar_node respawn. Denoise/self-mask stay on.
+            'max_output_range': 0.0,
             'median_radius_bins': 2,
             'min_neighbor_support': 2,
             'outlier_abs_m': 0.30,

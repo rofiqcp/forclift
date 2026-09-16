@@ -11,7 +11,7 @@ import shutil
 
 
 def _runtime_winch():
-    ws=os.environ.get("AGV_WS","/home/otomasi2/ros")
+    ws=os.environ.get("AGV_WS") or os.environ.get("AGV_ROOT") or os.path.join(os.path.expanduser("~"),"forclift")
     root=os.environ.get("AGV_RUNTIME_CONFIG_ROOT",os.path.join(ws,"config","runtime"))
     target_dir=os.path.join(os.path.expanduser(root),"esc"); os.makedirs(target_dir,exist_ok=True)
     target=os.path.join(target_dir,"winch.yaml")

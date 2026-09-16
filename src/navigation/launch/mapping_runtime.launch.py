@@ -180,7 +180,7 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_imu', default_value='true'),
         DeclareLaunchArgument('enable_imu_visual', default_value='true'),
         DeclareLaunchArgument('imu_port', default_value='/tmp/agv_devices/imu'),
-        DeclareLaunchArgument('imu_baudrate', default_value='115200'),
+        DeclareLaunchArgument('imu_baudrate', default_value='921600'),
         DeclareLaunchArgument('imu_frame_id', default_value='imu_link'),
         DeclareLaunchArgument('enable_esc', default_value='true'),
         DeclareLaunchArgument('esc_port', default_value='/dev/esc'),
@@ -194,8 +194,8 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_yolo', default_value='false',
             description='Start YOLO obstacle detector (camera must be enabled)'),
         DeclareLaunchArgument('camera_device', default_value='/tmp/agv_devices/camera'),
-        DeclareLaunchArgument('camera_width', default_value='1280'),
-        DeclareLaunchArgument('camera_height', default_value='720'),
+        DeclareLaunchArgument('camera_width', default_value='640'),
+        DeclareLaunchArgument('camera_height', default_value='480'),
         DeclareLaunchArgument('camera_fps', default_value='30'),
     ]
 

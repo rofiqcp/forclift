@@ -29,13 +29,26 @@
 // discovered from the serialized engine at runtime in PART-3.  This removes the
 // previous hard dependency on one fixed input tensor shape and one fixed YOLO grid size.
 static constexpr int DEFAULT_INPUT_SIZE = 640;
+#ifdef WAREHOUSE_COCO_PROFILE
+// Secondary low-rate semantic profile. The local YOLOv8n TensorRT engine is
+// COCO-80, but only class 0 (person) is emitted. LiDAR remains the primary
+// geometry obstacle detector, so this adds dynamic semantics with bounded load.
+static constexpr int NUM_CLASSES = 80;
+#else
 static constexpr int NUM_CLASSES = 5;
+#endif
 static constexpr int EXPECTED_OUTPUT_CHANNELS = 4 + NUM_CLASSES;
 
-// Class names: 0=floor marking, 1=block, 2=front, 3=hole pallet, 4=pallet
-static constexpr const char* CLASS_NAMES[NUM_CLASSES] = {
-    "floor marking", "block", "front", "hole pallet", "pallet"
-};
+static const char* class_name_for_id(int class_id) {
+#ifdef WAREHOUSE_COCO_PROFILE
+    return class_id == 0 ? "person" : "coco_other";
+#else
+    static constexpr const char* names[5] = {
+        "floor marking", "block", "front", "hole pallet", "pallet"
+    };
+    return (class_id >= 0 && class_id < 5) ? names[class_id] : "unknown";
+#endif
+}
 
 struct YOLODet {
     float bbox[4];  // cx, cy, width, height in model input space
@@ -151,6 +164,13 @@ public:
         declare_parameter("input_topic",          std::string("/camera/color/image_raw"));
         declare_parameter("output_topic",         std::string("/obstacle_detection/obstacles"));
         declare_parameter("visualization_topic",  std::string("/obstacle_detection/visualization"));
+#ifdef WAREHOUSE_COCO_PROFILE
+        declare_parameter("status_topic",         std::string("/warehouse_obstacle/status"));
+        declare_parameter("performance_topic",    std::string("/warehouse_obstacle/performance"));
+#else
+        declare_parameter("status_topic",         std::string("/obstacle_detection/status"));
+        declare_parameter("performance_topic",    std::string("/obstacle_detection/performance"));
+#endif
         declare_parameter("danger_zone_distance", 2.0);
         declare_parameter("warning_distance",     1.5);
         declare_parameter("use_tensorrt",          false);
@@ -190,9 +210,9 @@ public:
         // subscription to use intra-process communication when composable.
         status_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
         status_pub_ = create_publisher<std_msgs::msg::String>(
-            "/obstacle_detection/status", status_qos, status_options);
+            get_parameter("status_topic").as_string(), status_qos, status_options);
         performance_pub_ = create_publisher<std_msgs::msg::String>(
-            "/obstacle_detection/performance", rclcpp::QoS(10).best_effort());
+            get_parameter("performance_topic").as_string(), rclcpp::QoS(10).best_effort());
 
         // ── Robust model init ───────────────────────────────────────────────
         // The camera/visualization pipeline must stay alive even when weights
@@ -311,8 +331,13 @@ public:
                            " infer_max_fps=" + std::to_string(max_inference_fps_) +
                            " viz_max_fps=" + std::to_string(max_visualization_fps_) +
                            " mode=OBJECT_DETECTION_ONLY");
+#ifdef WAREHOUSE_COCO_PROFILE
+            RCLCPP_INFO(get_logger(),
+                "[YOLO-WAREHOUSE] COCO-80 engine loaded; emitting class 0=person only at bounded rate");
+#else
             RCLCPP_INFO(get_logger(),
                 "[YOLO-CLASSES] 0=floor marking, 1=block, 2=front, 3=hole pallet, 4=pallet");
+#endif
         } else if (allow_passthrough_without_model_) {
             publish_status("backend=PASSTHROUGH model=NOT_LOADED detections=disabled mode=OBJECT_DETECTION_ONLY");
             RCLCPP_INFO(get_logger(),
@@ -962,8 +987,13 @@ private:
         cv::Rect box(x1, y1, x2 - x1, y2 - y1);
         if (box.area() <= 0) return;
 
-        const std::string cname = (class_id >= 0 && class_id < NUM_CLASSES)
-                                  ? CLASS_NAMES[class_id] : "unknown";
+#ifdef WAREHOUSE_COCO_PROFILE
+        // Keep secondary semantics intentionally tiny: person is the only
+        // additional dataset class used at runtime. All other geometry is
+        // still detected by the existing pallet model and LiDAR corridor.
+        if (class_id != 0) return;
+#endif
+        const std::string cname = class_name_for_id(class_id);
         const std::string cat = category(cname);
         const double dist = estimate_distance(box, img.rows);
         const bool on_path = (cx > img.cols * 0.28 && cx < img.cols * 0.72
@@ -1030,6 +1060,9 @@ private:
         // hole pallet / pallet → pallet
         static const std::set<std::string> plt{
             "hole pallet","pallet","euro pallet","wooden pallet"};
+        static const std::set<std::string> dyn{
+            "person"};
+        if (dyn.count(c)) return "dynamic";
         if (sta.count(c)) return "static";
         if (plt.count(c)) return "pallet";
         return "other";

@@ -1,20 +1,65 @@
-# ROS 2 / colcon generated directories
-build/
-install/
-log/
+# ROS 2 / colcon generated output
+/build/
+/install/
+/log/
 
-# Common generated Python files
+# Python cache / local environments
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+**/.venv/
+**/.pio/
 
-# Editor / OS temporary files
+# C/C++ and CMake transient files
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+*.o
+*.a
+*.so
+
+# IDE / OS temporary files
 .vscode/
 .idea/
 .DS_Store
 *~
+*.swp
 
-# Large local datasets / archives
-/models/dataset/roboflow/dataset final.zip
+# Development/editor/runtime backups
+**/*.web.bak.*
+**/*.bak
+**/*.bak_*
+**/.backup/
+**/.*_backup/
+**/.*_backups/
+**/*_backup/
+**/*_backups/
+.tmp*
+*.b64
 
-# Runtime web tuning backups
-/config/runtime/**/*.web.bak.*
+# Local datasets / training runs
+/models/dataset/
+/models/training_runs/
+/models/warehouse_light_runs/
+/data/
+
+# Machine-specific model build products
+/models/*.engine
+/models/*.plan
+/src/yolo_obstacle_detection_ros2/models/*.engine
+
+# Local archives generated during development
+/src.zip
+/models/dataset/**/*.zip
+
+# Browser QA dependencies
+/.playwright/
+node_modules/
+
+# Generated workspace manifests
+/symlink_install_manifest.txt
+
+# Top-level transient snapshots
+/.backup_*/
+/.ros_sync_backup/

@@ -48,9 +48,13 @@ HectorSLAMNode::HectorSLAMNode(const rclcpp::NodeOptions & options)
   }
   scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
     scan_topic_, scan_qos, std::bind(&HectorSLAMNode::scan_callback, this, std::placeholders::_1));
-  imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-    "/imu/data", rclcpp::SensorDataQoS().keep_last(20),
-    std::bind(&HectorSLAMNode::imu_callback, this, std::placeholders::_1));
+  // BAB 4.2 pure LiDAR mode must not consume IMU at all.  Create the IMU
+  // subscription only when its rotation plausibility gate is explicitly enabled.
+  if (use_imu_rotation_gate_) {
+    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+      "/imu/data", rclcpp::SensorDataQoS().keep_last(20),
+      std::bind(&HectorSLAMNode::imu_callback, this, std::placeholders::_1));
+  }
 
   const double map_period = get_parameter("map_pub_period").as_double();
   const double pose_period = std::max(
@@ -111,6 +115,7 @@ void HectorSLAMNode::declare_parameters()
   declare_parameter("motion_median_threshold", 0.020);
   declare_parameter("motion_changed_range_threshold", 0.060);
   declare_parameter("motion_changed_ratio_threshold", 0.22);
+  declare_parameter("motion_reference_max_scans", 12);
   declare_parameter("max_scan_gap", 0.30);
   declare_parameter("search_tie_epsilon", 1.0e-6);
   declare_parameter("use_imu_rotation_gate", true);
@@ -159,6 +164,7 @@ void HectorSLAMNode::load_parameters()
   motion_median_threshold_ = std::max(0.001, get_parameter("motion_median_threshold").as_double());
   motion_changed_range_threshold_ = std::max(0.001, get_parameter("motion_changed_range_threshold").as_double());
   motion_changed_ratio_threshold_ = std::clamp(get_parameter("motion_changed_ratio_threshold").as_double(), 0.01, 1.0);
+  motion_reference_max_scans_ = std::max(3, static_cast<int>(get_parameter("motion_reference_max_scans").as_int()));
   max_scan_gap_ = std::max(0.10, get_parameter("max_scan_gap").as_double());
   search_tie_epsilon_ = std::max(0.0, get_parameter("search_tie_epsilon").as_double());
   use_imu_rotation_gate_ = get_parameter("use_imu_rotation_gate").as_bool();
@@ -407,6 +413,9 @@ void HectorSLAMNode::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr 
     first_scan_received_ = true;
     first_scan_stamp_ = scan_stamp.nanoseconds() > 0 ? scan_stamp : now();
     prev_scan_cart_ = points;
+    motion_reference_scan_ = points;
+    motion_reference_stamp_ = first_scan_stamp_;
+    motion_reference_age_ = 0;
     robot_x_ = get_parameter("robot_initial_x").as_double();
     robot_y_ = get_parameter("robot_initial_y").as_double();
     robot_theta_ = get_parameter("robot_initial_yaw").as_double();
@@ -442,6 +451,9 @@ void HectorSLAMNode::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr 
     // Do not try to match a post-reconnect / delayed scan against stale state.
     // Re-seed from the new scan while keeping the current pose continuous.
     prev_scan_cart_ = points;
+    motion_reference_scan_ = points;
+    motion_reference_stamp_ = effective_stamp;
+    motion_reference_age_ = 0;
     smooth_dx_ = 0.0;
     smooth_dy_ = 0.0;
     smooth_dtheta_ = 0.0;
@@ -459,7 +471,13 @@ void HectorSLAMNode::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr 
 
   ++scan_count_;
   if (scan_count_ > min_scans_before_matching_ && map_ready_) {
-    const bool moved = prev_scan_cart_.empty() || detect_motion(prev_scan_cart_, points);
+    if (motion_reference_scan_.empty()) {
+      motion_reference_scan_ = points;
+      motion_reference_stamp_ = effective_stamp;
+      motion_reference_age_ = 0;
+    }
+    ++motion_reference_age_;
+    const bool moved = detect_motion(motion_reference_scan_, points);
 
     if (moved) {
       motion_counter_ = std::min(motion_counter_ + 1, motion_confirm_threshold_);
@@ -480,6 +498,14 @@ void HectorSLAMNode::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr 
       smooth_dy_ = 0.0;
       smooth_dtheta_ = 0.0;
       prev_scan_cart_ = points;
+      // Keep the reference long enough for slow motion to accumulate. If the
+      // scene stays effectively stationary, refresh it periodically to avoid
+      // very old geometry/noise becoming a false movement trigger.
+      if (!moved && motion_reference_age_ >= motion_reference_max_scans_) {
+        motion_reference_scan_ = points;
+        motion_reference_stamp_ = effective_stamp;
+        motion_reference_age_ = 0;
+      }
       publish_odometry_measurement(effective_stamp, false);
       return;
     }
@@ -490,6 +516,12 @@ void HectorSLAMNode::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr 
       smooth_dy_ = 0.0;
       smooth_dtheta_ = 0.0;
       prev_scan_cart_ = points;
+      if (motion_reference_age_ >= motion_reference_max_scans_) {
+        motion_reference_scan_ = points;
+        motion_reference_stamp_ = effective_stamp;
+        motion_reference_age_ = 0;
+        motion_counter_ = 0;
+      }
       publish_odometry_measurement(effective_stamp, false);
       return;
     }
@@ -535,16 +567,26 @@ void HectorSLAMNode::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr 
 
     const double delta_trans = std::hypot(dx, dy);
     const double delta_rot = std::abs(dtheta);
+    // The candidate motion is measured since the held motion reference, so its
+    // physical-rate check must use the same accumulated time window.
+    double motion_dt = dt_scan;
+    if (motion_reference_stamp_.nanoseconds() > 0) {
+      motion_dt = std::max(dt_scan, (effective_stamp - motion_reference_stamp_).seconds());
+    }
 
-    if ((delta_trans / dt_scan) > max_vel_trans_ || (delta_rot / dt_scan) > max_vel_rot_) {
+    if ((delta_trans / motion_dt) > max_vel_trans_ || (delta_rot / motion_dt) > max_vel_rot_) {
       ++jump_reject_count_;
       smooth_dx_ = 0.0;
       smooth_dy_ = 0.0;
       smooth_dtheta_ = 0.0;
       RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
         "Rejecting LiDAR odometry delta beyond physical limits: dxy=%.3f m, dyaw=%.2f deg, dt=%.3f s",
-        delta_trans, delta_rot * 180.0 / kPi, dt_scan);
+        delta_trans, delta_rot * 180.0 / kPi, motion_dt);
       prev_scan_cart_ = points;
+      motion_reference_scan_ = points;
+      motion_reference_stamp_ = effective_stamp;
+      motion_reference_age_ = 0;
+      motion_counter_ = 0;
       publish_odometry_measurement(effective_stamp, false);
       return;
     }
@@ -566,6 +608,11 @@ void HectorSLAMNode::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr 
         trajectory_.pop_front();
       }
     }
+    // A confirmed/processed motion establishes the next cumulative reference.
+    motion_reference_scan_ = points;
+    motion_reference_stamp_ = effective_stamp;
+    motion_reference_age_ = 0;
+    motion_counter_ = 0;
   }
 
   const double distance = std::hypot(robot_x_ - last_update_x_, robot_y_ - last_update_y_);

@@ -1,0 +1,1 @@
+{"valid":true,"status":"OK","orientation_deg":82.94801341157203,"occupied_points":3289,"wall_band_count":8,"double_wall_detected":false,"double_wall_offset_m":null,"double_wall_overlap_m":null,"corridor_center_m":-3.6361,"corridor_width_m":2.6279,"corridor_overlap_m":20.553,"corridor_shift_m":null,"reference_valid":true,"method":"occupancy_grid_parallel_wall_v2"}

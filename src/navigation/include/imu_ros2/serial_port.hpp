@@ -42,7 +42,7 @@ private:
   bool configure_port();
 
   std::string port_;
-  int baudrate_{115200};
+  int baudrate_{921600};
   double timeout_sec_{0.1};
   int fd_{-1};
   mutable std::mutex mutex_;

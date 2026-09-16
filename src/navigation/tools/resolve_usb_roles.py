@@ -595,7 +595,7 @@ def _print_ownership_table(
         print(f"    detected_hub_port = {imu.hub_port}", flush=True)
         print(f"    by_path           = {imu.by_path_alias}", flush=True)
         print(f"    canonical         = {imu.canonical}", flush=True)
-        print(f"    baud              = 115200", flush=True)
+        print(f"    baud              = 921600", flush=True)
         print(f"    role              = {imu_role}", flush=True)
         print(f"    VID:PID           = {imu.vid}:{imu.pid}", flush=True)
         print(f"    driver            = {imu.driver}", flush=True)

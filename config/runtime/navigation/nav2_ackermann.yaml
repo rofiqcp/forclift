@@ -215,9 +215,8 @@ bt_navigator:
     odom_topic: /odometry/filtered
     bt_loop_duration: 200
     default_server_timeout: 500
-    # This AGV exposes only NavigateToPose. Loading NavigateThroughPoses here
-    # makes BtNavigator require /compute_path_through_poses and abort lifecycle.
-    navigators: [navigate_to_pose]
+    navigators:
+    - navigate_to_pose
     navigate_to_pose:
       plugin: nav2_bt_navigator/NavigateToPoseNavigator
 velocity_smoother:

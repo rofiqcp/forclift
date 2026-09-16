@@ -957,6 +957,26 @@ namespace {
           mergeMap(x,messageTimingFields(timing,m->header.stamp));
           emitMap("imu",x);
         });
+        // BAB 4.1 raw IMU channel. This is acquisition-only telemetry; the
+        // operational EKF/navigation chain continues to consume /imu/data.
+        auto rawImuTiming=std::make_shared<MessageTimingState>();
+        sub<sensor_msgs::msg::Imu>(n,"/imu/raw/data",sensor,[this,n,rawImuTiming](sensor_msgs::msg::Imu::ConstSharedPtr m){
+          auto&q=m->orientation;
+          double sinr=2*(q.w*q.x+q.y*q.z),cosr=1-2*(q.x*q.x+q.y*q.y),roll=std::atan2(sinr,cosr),sinp=2*(q.w*q.y-q.z*q.x),pitch=std::abs(sinp)>=1?std::copysign(kPi/2,sinp):std::asin(sinp);
+          QVariantMap x{
+            {"roll_rad",roll},{"pitch_rad",pitch},{"yaw_rad",yawFromQuat(q.x,q.y,q.z,q.w)},
+            {"qx",q.x},{"qy",q.y},{"qz",q.z},{"qw",q.w},
+            {"gx",m->angular_velocity.x},{"gy",m->angular_velocity.y},{"gz",m->angular_velocity.z},
+            {"ax",m->linear_acceleration.x},{"ay",m->linear_acceleration.y},{"az",m->linear_acceleration.z},
+            {"orientation_valid",m->orientation_covariance[0]>=0.0},
+            {"frame_id",QString::fromStdString(m->header.frame_id)},
+            {"source_topic",QStringLiteral("/imu/raw/data")},{"raw_ros_level",true},
+            {"publisher_count",QVariant::fromValue<qulonglong>(n->count_publishers("/imu/raw/data"))},
+            {"measurement_stamp_sec",double(m->header.stamp.sec)+m->header.stamp.nanosec*1e-9}
+          };
+          mergeMap(x,messageTimingFields(*rawImuTiming,m->header.stamp));
+          emitMap("imu_raw",x);
+        });
         // Capture every IMU component stream already published by imu_node.
         // Separate channels avoid overwriting fused /imu/data telemetry.
         auto imuComponentSub=[&](const char*topic,const char*channel,bool gyroOnly){
@@ -980,6 +1000,8 @@ namespace {
         };
         imuComponentSub("/imu/gyro","imu_gyro",true);
         imuComponentSub("/imu/accel","imu_accel",false);
+        imuComponentSub("/imu/raw/gyro","imu_raw_gyro",true);
+        imuComponentSub("/imu/raw/accel","imu_raw_accel",false);
         auto imuVectorSub=[&](const char*topic,const char*channel,const char*xKey,const char*yKey,const char*zKey){
           const std::string topicName(topic);
           const QString channelName=QString::fromUtf8(channel);
@@ -996,6 +1018,8 @@ namespace {
         };
         imuVectorSub("/imu/mag","imu_mag","mx","my","mz");
         imuVectorSub("/imu/euler","imu_euler","roll_rad","pitch_rad","yaw_rad");
+        imuVectorSub("/imu/raw/mag","imu_raw_mag","mx","my","mz");
+        imuVectorSub("/imu/raw/euler","imu_raw_euler","roll_rad","pitch_rad","yaw_rad");
         {
           const std::string topicName("/imu/mag_field");
           auto timing=std::make_shared<MessageTimingState>();

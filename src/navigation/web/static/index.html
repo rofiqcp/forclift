@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07100f">
   <link rel="icon" href="data:,">
   <title>AGV Forklift Operator Console</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=20260916-mapping-gui-v3">
 </head>
 <body>
   <div class="app-shell">
@@ -74,6 +74,7 @@
             <article class="health-card" data-health="imu"><div class="health-icon">I</div><div><span>IMU</span><b id="healthImu">OFFLINE</b><small id="healthImuDetail">menunggu /imu/connected</small></div><i class="health-led"></i></article>
             <article class="health-card" data-health="camera"><div class="health-icon">C</div><div><span>CAMERA</span><b id="healthCamera">OFFLINE</b><small id="healthCameraDetail">Astra Pro</small></div><i class="health-led"></i></article>
             <article class="health-card" data-health="esc"><div class="health-icon">E</div><div><span>ESC</span><b id="healthEsc">OFFLINE</b><small id="healthEscDetail">serial / ACK</small></div><i class="health-led"></i></article>
+            <article class="health-card" data-health="winch"><div class="health-icon">F4</div><div><span>STM32 F411 / WINCH</span><b id="healthWinch">OFFLINE</b><small id="healthWinchDetail">menunggu /winch/connected</small></div><i class="health-led"></i></article>
             <article class="health-card" data-health="localization"><div class="health-icon">L</div><div><span>LOCALIZATION</span><b id="healthLocalization">WAIT</b><small id="healthLocalizationDetail">map → odom → base</small></div><i class="health-led"></i></article>
             <article class="health-card" data-health="nav2"><div class="health-icon">N</div><div><span>NAV2</span><b id="healthNav2">WAIT</b><small id="healthNav2Detail">planner / controller</small></div><i class="health-led"></i></article>
           </div>
@@ -97,8 +98,8 @@
         <section class="page" id="page-navigation">
           <div class="map-layout">
             <article class="panel map-panel">
-              <div class="panel-head map-head"><div><span class="eyebrow">LIVE MAP</span><h2>Navigation Workspace</h2></div><div class="toolbar nav-map-toolbar"><label class="nav-map-picker"><span>Display map</span><select id="navMapSelect"><option value="live">LIVE / ACTIVE MAP</option><option value="saved-1">MAP 1 • hasil build</option><option value="saved-2">MAP 2 • hasil build</option><option value="saved-3">MAP 3 • hasil build</option></select></label><span class="status-chip" id="navMapSourceChip">LIVE</span><button class="soft-btn" id="mapCenterBtn">Center Robot</button><button class="soft-btn" id="mapFitBtn">Fit Map</button></div></div>
-              <div class="map-stage" id="mapStage"><canvas id="mapCanvas" width="1200" height="720"></canvas><div class="map-source-badge" id="navMapSourceBadge">LIVE / ACTIVE MAP</div><div class="map-legend"><span><i class="occupancy-key"></i> Occupancy grid</span><span><i class="inflation-key"></i> Global inflation</span><span><i class="costmap-key"></i> Local costmap</span><span><i class="mppi-candidate-key"></i> MPPI candidates</span><span><i class="mppi-optimal-key"></i> MPPI optimal</span><span><i class="robot-key"></i> Robot</span><span><i class="path-key"></i> Global path</span><span><i class="mppi-plan-key"></i> MPPI transformed plan</span><span><i class="goal-key"></i> Goal</span></div><div class="map-placeholder" id="mapPlaceholder">Menunggu /map...</div></div>
+              <div class="panel-head map-head"><div><span class="eyebrow">NAVIGATION MAP</span><h2>Navigation Workspace</h2></div><div class="toolbar nav-map-toolbar"><span class="status-chip active" id="navMapSourceChip">NAVIGATION MAP</span><button class="soft-btn" id="mapCenterBtn">Center Robot</button><button class="soft-btn" id="mapFitBtn">Fit Map</button></div></div>
+              <div class="map-stage" id="mapStage"><canvas id="mapCanvas" width="1200" height="720"></canvas><div class="map-source-badge active" id="navMapSourceBadge">NAVIGATION MAP</div><div class="map-legend"><span><i class="occupancy-key"></i> Occupancy grid</span><span><i class="inflation-key"></i> Global inflation</span><span><i class="costmap-key"></i> Local costmap</span><span><i class="scan-key"></i> LaserScan</span><span><i class="mppi-candidate-key"></i> MPPI candidates</span><span><i class="mppi-optimal-key"></i> MPPI optimal</span><span><i class="robot-key"></i> Robot</span><span><i class="path-key"></i> Global path</span><span><i class="mppi-plan-key"></i> MPPI transformed plan</span><span><i class="goal-key"></i> Goal</span></div><div class="map-placeholder" id="mapPlaceholder">Menunggu /map...</div></div>
             </article>
             <div class="stack">
               <article class="panel control-card">
@@ -107,16 +108,16 @@
                 <label>Y map (m)<input type="number" step="0.01" id="goalY" value="0"></label>
                 <label>Yaw (deg)<input type="number" step="1" id="goalYaw" value="0"></label>
                 <div class="button-row"><button class="primary-btn" id="sendGoalBtn">Send Goal</button><button class="danger-btn" id="cancelGoalBtn">Cancel</button></div>
-                <p class="hint" id="goalMapHint">Klik peta LIVE / ACTIVE MAP untuk mengisi X/Y. Goal tetap melewati NavigationCore dan safety gate kendaraan.</p>
+                <p class="hint" id="goalMapHint">Klik Navigation Map untuk mengisi X/Y. Goal tetap melewati NavigationCore dan safety gate kendaraan.</p>
               </article>
               <article class="panel compact nav-switch-card">
-                <div class="panel-head"><div><span class="eyebrow">MAP NAV2 CONTROL</span><h2>Activate Selected Build</h2></div><span class="status-chip waiting" id="navSwitchChip">NAV2 OFF</span></div>
+                <div class="panel-head"><div><span class="eyebrow">MAP NAV2 CONTROL</span><h2>Navigation Map Control</h2></div><span class="status-chip waiting" id="navSwitchChip">NAV2 OFF</span></div>
                 <div class="kv-list"><div><span>Selected view</span><b id="navSelectedMap">LIVE</b></div><div><span>Active Nav2 map</span><b id="navActiveMap">--</b></div><div><span>State</span><b id="navSwitchState">--</b></div></div>
                 <div class="button-row nav-switch-actions"><button class="primary-btn grow" id="startNavMapBtn">START NAV2</button><button class="danger-btn grow" id="stopNavMapBtn">STOP NAV2</button></div>
-                <p class="hint" id="navSwitchMessage">Pilih MAP 1/2/3 hasil build untuk mengaktifkannya pada Nav2.</p>
+                <p class="hint" id="navSwitchMessage">LIVE memakai map_Navigation. MAP 1/2/3 tetap tersedia sebagai hasil build/pengujian.</p>
               </article>
               <article class="panel compact"><div class="panel-head"><div><span class="eyebrow">POSE</span><h2>Current Estimate</h2></div></div><div class="kv-list"><div><span>X</span><b id="poseX">--</b></div><div><span>Y</span><b id="poseY">--</b></div><div><span>Yaw</span><b id="poseYaw">--</b></div><div><span>Velocity</span><b id="poseV">--</b></div><div><span>Path length</span><b id="pathLength">--</b></div></div></article>
-              <article class="panel compact"><div class="panel-head"><div><span class="eyebrow">INITIAL POSE</span><h2>Localization Tool</h2></div></div><div class="button-row"><button class="soft-btn grow" id="usePoseForInitial">Use Current</button><button class="soft-btn grow" id="resetLocalizationBtn">Reset Samples</button></div></article>
+              <article class="panel compact"><div class="panel-head"><div><span class="eyebrow">INITIAL POSE</span><h2>Localization Tool</h2></div></div><div class="button-row"><button class="primary-btn grow" id="poseEstimateBtn">2D Pose Estimate</button></div><div class="button-row"><button class="soft-btn grow" id="usePoseForInitial">Use Current</button><button class="soft-btn grow" id="resetLocalizationBtn">Reset Samples</button></div><p class="hint" id="initialPoseHint">Klik 2D Pose Estimate, lalu klik-drag pada peta untuk menentukan posisi dan arah awal AMCL.</p></article>
             </div>
           </div>
           <div class="four-metrics"><div><span>Goal state</span><b id="navGoalState">--</b></div><div><span>Nav2 ready</span><b id="navReady">--</b></div><div><span>MPPI loop</span><b id="mppiReady">--</b></div><div><span>Collision monitor</span><b id="collisionState">--</b></div></div>
@@ -138,6 +139,7 @@
                 <div><span>Stable frame</span><b id="alignStable">--</b></div>
               </div></div>
               <div class="alignment-group"><h3>Geometry</h3><div class="alignment-kv">
+                <div><span>Validate geometry</span><b id="alignValidateGeometry">--</b></div>
                 <div><span>Midpoint</span><b id="alignMidpoint">--</b></div>
                 <div><span>Hole separation</span><b id="alignSeparation">--</b></div>
                 <div><span>Centerline n</span><b id="alignCenterline">--</b></div>
@@ -191,8 +193,9 @@
               <div class="big-coordinates"><div><span>CENTER RANGE</span><b id="lidarCenter">--</b></div><div><span>VALID RATIO</span><b id="lidarValid">--</b></div></div>
               <div class="metric-grid"><div><span>Scan rate</span><b id="lidarRate">--</b></div><div><span>Samples</span><b id="lidarSamples">--</b></div><div><span>Dropout</span><b id="lidarDropout">--</b></div><div><span>Min range</span><b id="lidarMin">--</b></div><div><span>Max range</span><b id="lidarMax">--</b></div><div><span>Safety</span><b id="lidarSafety">--</b></div></div>
             </article>
-            <article class="panel"><div class="panel-head"><div><span class="eyebrow">YAHBOOM IMU</span><h2>Orientation & Motion</h2></div><span class="status-chip waiting" id="imuChip">WAIT</span></div><div class="orientation-display"><div class="compass"><div class="needle" id="imuNeedle"></div><span>N</span></div><div class="orientation-values"><div><span>Roll</span><b id="imuRoll">--</b></div><div><span>Pitch</span><b id="imuPitch">--</b></div><div><span>Yaw</span><b id="imuYaw">--</b></div></div></div><div class="metric-grid"><div><span>Gyro X</span><b id="imuGx">--</b></div><div><span>Gyro Y</span><b id="imuGy">--</b></div><div><span>Gyro Z</span><b id="imuGz">--</b></div><div><span>Accel X</span><b id="imuAx">--</b></div><div><span>Accel Y</span><b id="imuAy">--</b></div><div><span>Accel Z</span><b id="imuAz">--</b></div></div></article>
+            <article class="panel"><div class="panel-head"><div><span class="eyebrow">YAHBOOM IMU</span><h2>Orientation & Motion</h2></div><span class="status-chip waiting" id="imuChip">WAIT</span></div><div class="orientation-display"><div class="compass"><div class="needle" id="imuNeedle"></div><span>N</span></div><div class="orientation-values"><div><span>Roll</span><b id="imuRoll">--</b></div><div><span>Pitch</span><b id="imuPitch">--</b></div><div><span>Mag Heading</span><b id="imuYaw">--</b></div></div></div><div class="metric-grid"><div><span>Gyro X</span><b id="imuGx">--</b></div><div><span>Gyro Y</span><b id="imuGy">--</b></div><div><span>Gyro Z</span><b id="imuGz">--</b></div><div><span>Accel X</span><b id="imuAx">--</b></div><div><span>Accel Y</span><b id="imuAy">--</b></div><div><span>Accel Z</span><b id="imuAz">--</b></div></div></article>
           </div>
+          <article class="panel mag-panel"><div class="panel-head"><div><span class="eyebrow">YAHBOOM MAGNETOMETER</span><h2>Calibrated Magnetic Field & Heading</h2></div><span class="status-chip waiting" id="magChip">WAIT</span></div><div class="big-coordinates"><div><span>MAGNETIC HEADING</span><b id="magHeading">--</b></div><div><span>FIELD MAGNITUDE</span><b id="magField">--</b></div></div><div class="metric-grid"><div><span>Mag X</span><b id="imuMx">--</b></div><div><span>Mag Y</span><b id="imuMy">--</b></div><div><span>Mag Z</span><b id="imuMz">--</b></div><div><span>Zero offset</span><b id="magOffset">--</b></div><div><span>Calibration RMSE</span><b id="magRmse">--</b></div><div><span>Euler yaw (raw)</span><b id="imuEulerYaw">--</b></div></div></article>
           <div class="two-col"><article class="panel"><div class="panel-head"><div><span class="eyebrow">LIDAR DRIVER</span><h2>Scan & Safety Detail</h2></div></div><div id="lidarDetail" class="json-pretty">Waiting...</div></article><article class="panel"><div class="panel-head"><div><span class="eyebrow">LOCALIZATION</span><h2>AMCL / EKF State</h2></div></div><div id="localizationDetail" class="json-pretty">Waiting...</div></article></div>
         </section>
 
@@ -276,7 +279,7 @@
                   <label>Variation / Run<input id="runVariation" value="run-01" autocomplete="off"></label>
                   <label>Condition<input id="runCondition" value="nominal" autocomplete="off"></label>
                   <label>Sample rate<input id="runSampleRate" type="number" min="1" max="20" step="1" value="5"><small id="runSampleRateUnit">Hz</small></label>
-                  <div class="record-actions"><button class="record-start" id="startCsvBtn">● START CSV</button><button class="record-stop" id="stopCsvBtn" disabled>■ STOP + AUTO SAVE</button><button class="danger-btn" id="deleteMapBtn" hidden>DELETE MAP</button></div>
+                  <div class="record-actions"><button class="record-start" id="startCsvBtn">● START CSV</button><button class="record-stop" id="stopCsvBtn" disabled>■ STOP + AUTO SAVE</button><button class="soft-btn" id="saveMapPngBtn" hidden disabled>⇩ SAVE MAP PNG</button><button class="danger-btn" id="resetNavResultsBtn" hidden>↺ RESET TABEL &amp; GRAFIK</button><button class="danger-btn" id="deleteMapBtn" hidden>DELETE MAP</button></div>
                 </div>
                 <div class="record-footer"><span id="recordElapsed">00:00.0</span><span id="recordPath">Output: ~/.ros/agv_web_reports</span><span id="recordMessage">Raw + summary + config snapshot + manifest</span></div>
               </article>
@@ -292,8 +295,14 @@
                   <div class="panel-head"><div><span class="eyebrow">CONTEXT VISUAL</span><h2 id="contextTitle">Live Evidence</h2></div><div class="context-tabs"><button class="active" data-context="auto">AUTO</button><button data-context="raw">RAW</button></div></div>
                   <div id="contextVisual" class="context-visual">
                     <div class="context-map" id="contextMap"><canvas id="expMapCanvas" width="900" height="520"></canvas><div class="context-empty" id="expMapEmpty">Map belum tersedia</div></div>
-                    <div class="context-camera" id="contextCamera"><img id="expCameraImage" alt="Perception evidence"><canvas id="expAlignmentOverlayCanvas"></canvas><div class="context-scan-hud" id="expScanHud"><div class="scan-hud-head"><b id="expScanState">WAIT CAMERA</b><span id="expScanFresh">WAIT</span></div><div class="scan-hud-grid"><div><span>Jarak Depan LiDAR</span><b id="expScanDistance">--</b></div><div><span>Obstacle YOLO</span><b id="expScanObstacle">--</b></div><div><span>Hole Pair</span><b id="expScanHolePair">--</b></div><div><span>Middle Block</span><b id="expScanBlock">--</b></div><div><span>Error Lateral</span><b id="expScanLateral">--</b></div><div><span>Error Yaw</span><b id="expScanYaw">--</b></div><div class="scan-hud-wide"><span>Set Point</span><b id="expScanSetpoint">X[525,755] Y[560,720]</b></div></div></div><div class="context-empty" id="expCameraEmpty">Camera frame belum tersedia</div></div>
+                    <div class="context-camera" id="contextCamera"><img id="expCameraImage" alt="Perception evidence"><canvas id="expAlignmentOverlayCanvas"></canvas><div class="context-empty" id="expCameraEmpty">Camera frame belum tersedia</div></div>
                     <div class="context-esc" id="contextEsc"><canvas id="expEscCanvas" width="900" height="520"></canvas></div>
+                  </div>
+                  <div class="context-scan-hud context-scan-hud-docked" id="expScanHud"><div class="scan-hud-head"><b id="expScanState">WAIT CAMERA</b><span id="expScanFresh">WAIT</span></div><div class="scan-hud-grid"><div><span>Jarak Depan LiDAR</span><b id="expScanDistance">--</b></div><div><span>Obstacle YOLO</span><b id="expScanObstacle">--</b></div><div><span>Person Dynamic</span><b id="expScanPerson">--</b></div><div><span>Static Box / Object</span><b id="expScanBoxStatic">--</b></div><div><span>Semantic FPS</span><b id="expScanSemanticFps">--</b></div><div><span>Obstacle in Path</span><b id="expScanPathObstacle">--</b></div><div class="scan-hud-wide"><span>Indikator Obstacle</span><b id="expScanObstacleAction">--</b></div><div><span>Jarak dari Depan AGV</span><b id="expScanPathDistance">--</b></div><div><span>Lebar Corridor</span><b id="expScanCorridorWidth">--</b></div><div><span>Hole Pair</span><b id="expScanHolePair">--</b></div><div><span>Middle Block</span><b id="expScanBlock">--</b></div><div><span>Error Lateral</span><b id="expScanLateral">--</b></div><div><span>Error Yaw</span><b id="expScanYaw">--</b></div><div class="scan-hud-wide"><span>Set Point</span><b id="expScanSetpoint">X[525,755] Y[560,720]</b></div></div></div>
+                  <div class="obstacle-corridor-panel" id="expObstacleCorridorPanel">
+                    <div class="obstacle-corridor-head"><span>OBSTACLE CORRIDOR • URDF / NAV2 FOOTPRINT</span><b id="expPathObstacleStatus">WAIT LIDAR</b></div>
+                    <canvas id="expObstacleCorridorCanvas" width="900" height="210"></canvas>
+                    <div class="obstacle-corridor-note">Top view aktual dari /scan_nav. Person on-path = dynamic; cluster LiDAR yang menetap = static box/object. Static mengeluarkan SEGERA SINGKIRKAN, dynamic menunggu sampai corridor bebas. Belum menjadi zona pengereman berbasis kecepatan.</div>
                   </div>
                   <div class="context-metrics" id="contextMetrics"></div>
                 </article>
@@ -341,11 +350,11 @@
         </section>
       </main>
 
-      <footer class="footer"><span>ADV Operator Console</span><span id="footerStatus">Connecting to ROS2 bridge…</span><span>localhost:5000</span></footer>
+      <footer class="footer"><span>ADV Operator Console</span><span id="footerStatus">Connecting to ROS2 bridge…</span><span>localhost:5005</span></footer>
     </div>
   </div>
   <div class="toast-stack" id="toastStack" aria-live="polite"></div>
   <div class="modal-backdrop" id="confirmModal"><div class="modal"><span class="eyebrow">CONFIRM ACTION</span><h2 id="confirmTitle">Confirm</h2><p id="confirmText"></p><div class="button-row"><button class="soft-btn grow" id="confirmNo">Cancel</button><button class="danger-btn grow" id="confirmYes">Continue</button></div></div></div>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=20260916-mapping-gui-v3" defer></script>
 </body>
 </html>

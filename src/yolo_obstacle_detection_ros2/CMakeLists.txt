@@ -162,6 +162,13 @@ endfunction()
 add_executable(obstacle_detector_node src/obstacle_detector_node.cpp)
 configure_obstacle_target(obstacle_detector_node)
 
+# Low-rate COCO semantic companion. Reuses the same TensorRT/GPU-preprocess
+# implementation but emits only person detections, so the pallet model remains
+# unchanged and runtime overhead is bounded by max_inference_fps=3.
+add_executable(warehouse_person_detector_node src/obstacle_detector_node.cpp)
+target_compile_definitions(warehouse_person_detector_node PRIVATE WAREHOUSE_COCO_PROFILE=1)
+configure_obstacle_target(warehouse_person_detector_node)
+
 # PART-5 Stage-3: component build enables same-process camera -> YOLO
 # intra-process delivery, avoiding DDS serialization between these two nodes.
 add_library(obstacle_detector_component SHARED src/obstacle_detector_node.cpp)
@@ -202,7 +209,7 @@ target_compile_definitions(astra_rgb_component PRIVATE YOLO_COMPONENT_BUILD=1)
 configure_camera_target(astra_rgb_component)
 rclcpp_components_register_nodes(astra_rgb_component "astra_rgb_driver::AstraRGBNode")
 
-install(TARGETS obstacle_detector_node astra_rgb_v4l2_node obstacle_detector_component astra_rgb_component
+install(TARGETS obstacle_detector_node warehouse_person_detector_node astra_rgb_v4l2_node obstacle_detector_component astra_rgb_component
          ARCHIVE DESTINATION lib
          LIBRARY DESTINATION lib
          RUNTIME DESTINATION lib/${PROJECT_NAME})

@@ -84,7 +84,7 @@ def generate_launch_description():
     args = [
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('imu_port', default_value='/tmp/agv_devices/imu'),
-        DeclareLaunchArgument('imu_baudrate', default_value='115200'),
+        DeclareLaunchArgument('imu_baudrate', default_value='921600'),
         DeclareLaunchArgument('lidar_port', default_value='/tmp/agv_devices/lidar'),
         DeclareLaunchArgument('lidar_baudrate', default_value='230400'),
         DeclareLaunchArgument('esc_port', default_value='/dev/esc'),

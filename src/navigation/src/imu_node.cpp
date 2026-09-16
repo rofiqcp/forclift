@@ -92,7 +92,7 @@ WT901IMUNode::~WT901IMUNode()
 void WT901IMUNode::declare_parameters()
 {
   declare_parameter("port", std::string(IMU_PHYSICAL_PATH));
-  declare_parameter("baudrate", 115200);
+  declare_parameter("baudrate", 921600);
   declare_parameter("frame_id", std::string("imu_link"));
   declare_parameter("publish_rate", 50);
   declare_parameter("use_ahrs_euler", true);
@@ -189,6 +189,11 @@ void WT901IMUNode::initialize_components()
   mag_pub_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/imu/mag", qos);
   mag_field_pub_ = create_publisher<sensor_msgs::msg::MagneticField>("/imu/mag_field", qos);
   euler_pub_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/imu/euler", qos);
+  raw_imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/imu/raw/data", qos);
+  raw_gyro_pub_ = create_publisher<sensor_msgs::msg::Imu>("/imu/raw/gyro", qos);
+  raw_accel_pub_ = create_publisher<sensor_msgs::msg::Imu>("/imu/raw/accel", qos);
+  raw_mag_pub_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/imu/raw/mag", qos);
+  raw_euler_pub_ = create_publisher<geometry_msgs::msg::Vector3Stamped>("/imu/raw/euler", qos);
   status_pub_ = create_publisher<std_msgs::msg::String>("/imu/status", qos);
   marker_pub_ = create_publisher<visualization_msgs::msg::Marker>("/imu_pose_marker", 10);
 
@@ -472,6 +477,31 @@ void WT901IMUNode::publish_imu_messages()
     imu_msg->orientation_covariance[0] = -1.0;
   }
 
+  // Raw composite data in SI units before calibration.
+  auto raw_imu_msg = std::make_unique<sensor_msgs::msg::Imu>();
+  raw_imu_msg->header.stamp = sample_stamp;
+  raw_imu_msg->header.frame_id = frame_id_;
+  if (use_ahrs_ && angle_fresh) {
+    raw_imu_msg->orientation.x = q[0];
+    raw_imu_msg->orientation.y = q[1];
+    raw_imu_msg->orientation.z = q[2];
+    raw_imu_msg->orientation.w = q[3];
+    raw_imu_msg->orientation_covariance = orientation_cov_;
+  } else {
+    raw_imu_msg->orientation.w = 1.0;
+    raw_imu_msg->orientation_covariance.fill(0.0);
+    raw_imu_msg->orientation_covariance[0] = -1.0;
+  }
+  raw_imu_msg->angular_velocity.x = gyro_.x;
+  raw_imu_msg->angular_velocity.y = gyro_.y;
+  raw_imu_msg->angular_velocity.z = gyro_.z;
+  raw_imu_msg->angular_velocity_covariance = angular_vel_cov_;
+  raw_imu_msg->linear_acceleration.x = accel_.x;
+  raw_imu_msg->linear_acceleration.y = accel_.y;
+  raw_imu_msg->linear_acceleration.z = accel_.z;
+  raw_imu_msg->linear_acceleration_covariance = linear_acc_cov_;
+  raw_imu_pub_->publish(std::move(raw_imu_msg));
+
   imu_msg->angular_velocity.x = gyro_cal.x;
   imu_msg->angular_velocity.y = gyro_cal.y;
   imu_msg->angular_velocity.z = gyro_cal.z;
@@ -493,6 +523,13 @@ void WT901IMUNode::publish_imu_messages()
   euler_msg->vector.z = angle_.yaw;
   if (angle_fresh) {
     euler_pub_->publish(std::move(euler_msg));
+    auto raw_euler_msg = std::make_unique<geometry_msgs::msg::Vector3Stamped>();
+    raw_euler_msg->header.stamp = last_angle_stamp_;
+    raw_euler_msg->header.frame_id = frame_id_;
+    raw_euler_msg->vector.x = angle_.roll;
+    raw_euler_msg->vector.y = angle_.pitch;
+    raw_euler_msg->vector.z = angle_.yaw;
+    raw_euler_pub_->publish(std::move(raw_euler_msg));
   }
 
   // Magnetometer
@@ -505,6 +542,13 @@ void WT901IMUNode::publish_imu_messages()
   mag_msg->vector.z = mag_cal.z;
   if (mag_fresh) {
     mag_pub_->publish(std::move(mag_msg));
+    auto raw_mag_msg = std::make_unique<geometry_msgs::msg::Vector3Stamped>();
+    raw_mag_msg->header.stamp = mag_stamp;
+    raw_mag_msg->header.frame_id = frame_id_;
+    raw_mag_msg->vector.x = mag_.x;
+    raw_mag_msg->vector.y = mag_.y;
+    raw_mag_msg->vector.z = mag_.z;
+    raw_mag_pub_->publish(std::move(raw_mag_msg));
     auto magnetic = std::make_unique<sensor_msgs::msg::MagneticField>();
     magnetic->header.stamp = mag_stamp;
     magnetic->header.frame_id = frame_id_;
@@ -525,6 +569,14 @@ void WT901IMUNode::publish_imu_messages()
   gyro_msg->angular_velocity.z = gyro_cal.z;
   gyro_msg->angular_velocity_covariance = angular_vel_cov_;
   gyro_pub_->publish(std::move(gyro_msg));
+  auto raw_gyro_msg = std::make_unique<sensor_msgs::msg::Imu>();
+  raw_gyro_msg->header.stamp = last_gyro_stamp_.nanoseconds() > 0 ? last_gyro_stamp_ : sample_stamp;
+  raw_gyro_msg->header.frame_id = frame_id_;
+  raw_gyro_msg->angular_velocity.x = gyro_.x;
+  raw_gyro_msg->angular_velocity.y = gyro_.y;
+  raw_gyro_msg->angular_velocity.z = gyro_.z;
+  raw_gyro_msg->angular_velocity_covariance = angular_vel_cov_;
+  raw_gyro_pub_->publish(std::move(raw_gyro_msg));
 
   // Accel only
   auto accel_msg = std::make_unique<sensor_msgs::msg::Imu>();
@@ -535,6 +587,14 @@ void WT901IMUNode::publish_imu_messages()
   accel_msg->linear_acceleration.z = accel_cal.z;
   accel_msg->linear_acceleration_covariance = linear_acc_cov_;
   accel_pub_->publish(std::move(accel_msg));
+  auto raw_accel_msg = std::make_unique<sensor_msgs::msg::Imu>();
+  raw_accel_msg->header.stamp = last_accel_stamp_.nanoseconds() > 0 ? last_accel_stamp_ : sample_stamp;
+  raw_accel_msg->header.frame_id = frame_id_;
+  raw_accel_msg->linear_acceleration.x = accel_.x;
+  raw_accel_msg->linear_acceleration.y = accel_.y;
+  raw_accel_msg->linear_acceleration.z = accel_.z;
+  raw_accel_msg->linear_acceleration_covariance = linear_acc_cov_;
+  raw_accel_pub_->publish(std::move(raw_accel_msg));
 
   // Status
   auto status_msg = std::make_unique<std_msgs::msg::String>();

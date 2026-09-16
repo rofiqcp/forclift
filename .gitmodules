@@ -1,0 +1,8 @@
+[submodule "F4gateway"]
+	path = F4gateway
+	url = https://github.com/rofiqcp/F4gateway.git
+	branch = v2
+[submodule "hoverboard-vesc"]
+	path = hoverboard-vesc
+	url = https://github.com/rofiqcp/hoverboard-vesc.git
+	branch = v1

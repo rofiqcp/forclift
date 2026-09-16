@@ -22,6 +22,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from lifecycle_msgs.msg import State, TransitionEvent
 from lifecycle_msgs.srv import GetState
 from nav_msgs.msg import OccupancyGrid, Odometry
+from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import Bool, String
 from tf2_ros import Buffer, TransformListener
 
@@ -112,8 +113,29 @@ class AutonomyHealthManager(Node):
         self.allowed_pub = self.create_publisher(Bool, '/system/autonomy_motion_allowed', state_qos)
         self.status_pub = self.create_publisher(String, '/system/autonomy_health', state_qos)
         self.timer = self.create_timer(1.0 / self.rate, self._tick)
+        self.add_on_set_parameters_callback(self._on_set_parameters)
         self._publish(False, ['startup'])
         self.get_logger().info('[AUTONOMY-HEALTH] fail-closed continuous interlock armed')
+
+    def _on_set_parameters(self, params):
+        new_rate = None
+        for param in params:
+            if param.name == 'publish_rate_hz':
+                try:
+                    candidate = float(param.value)
+                except (TypeError, ValueError):
+                    return SetParametersResult(successful=False, reason='publish_rate_hz must be numeric')
+                if not math.isfinite(candidate) or candidate < 2.0:
+                    return SetParametersResult(successful=False, reason='publish_rate_hz must be >= 2 Hz')
+                new_rate = candidate
+        if new_rate is not None and abs(new_rate - self.rate) > 1e-9:
+            self.rate = new_rate
+            try:
+                self.destroy_timer(self.timer)
+            except Exception:
+                pass
+            self.timer = self.create_timer(1.0 / self.rate, self._tick)
+        return SetParametersResult(successful=True)
 
     def _declare(self):
         defaults = {

@@ -139,6 +139,12 @@ private:
 
   // Scan matching state
   std::vector<ScanPoint> prev_scan_cart_;
+  // Motion reference is intentionally held across several scans so slow AGV
+  // motion can accumulate above the motion gate instead of being reset every frame.
+  std::vector<ScanPoint> motion_reference_scan_;
+  rclcpp::Time motion_reference_stamp_{0, 0, RCL_ROS_TIME};
+  int motion_reference_age_{0};
+  int motion_reference_max_scans_{12};
   int scan_count_{0};
   int min_scans_before_matching_{3};
   std::deque<Pose2D> trajectory_;
