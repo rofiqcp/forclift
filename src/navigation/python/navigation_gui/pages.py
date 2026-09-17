@@ -900,7 +900,7 @@ class MapPage(QObject):
             self.analyze_quality()
         if not self.quality_metrics:
             return
-        base = Path("/home/otomasi2/ros/log/agv_gui/manual_exports")
+        base = Path("/home/otomasi2/forclift/log/agv_gui/manual_exports")
         base.mkdir(parents=True, exist_ok=True)
         default = base / f"map{self.source.slot}_quality_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         path, _ = QFileDialog.getSaveFileName(self.content, "Export Map Quality", str(default), "CSV (*.csv)")
@@ -915,7 +915,7 @@ class MapPage(QObject):
                 writer.writerow([key, value])
 
     def save_screenshot(self):
-        default = Path("/home/otomasi2/ros/log/agv_gui") / f"map{self.source.slot}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        default = Path("/home/otomasi2/forclift/log/agv_gui") / f"map{self.source.slot}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         path, _ = QFileDialog.getSaveFileName(self.content, "Save Map Screenshot", str(default), "PNG (*.png)")
         if path:
             self.canvas.grab().save(path, "PNG")
@@ -1013,14 +1013,14 @@ class MapComparisonPage:
             return "N/A"
 
     def export_png(self):
-        default = Path("/home/otomasi2/ros/log/agv_gui/map_comparison.png")
+        default = Path("/home/otomasi2/forclift/log/agv_gui/map_comparison.png")
         path, _ = QFileDialog.getSaveFileName(self.content, "Export Map Comparison PNG", str(default), "PNG (*.png)")
         if path:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             self.content.grab().save(path, "PNG")
 
     def export_csv(self):
-        default = Path("/home/otomasi2/ros/log/agv_gui/map_comparison.csv")
+        default = Path("/home/otomasi2/forclift/log/agv_gui/map_comparison.csv")
         path, _ = QFileDialog.getSaveFileName(self.content, "Export Map Comparison", str(default), "CSV (*.csv)")
         if not path:
             return
@@ -1046,7 +1046,7 @@ class GroundTruthPage(QObject):
         self.points: List[Dict[str, Any]] = []
         self.live_poses: Dict[str, Tuple[float, float, float]] = {}
         self.measurements: List[Dict[str, Any]] = []
-        self.measurement_path = Path("/home/otomasi2/ros/log/agv_gui/ground_truth_measurements.csv")
+        self.measurement_path = Path("/home/otomasi2/forclift/log/agv_gui/ground_truth_measurements.csv")
         self.settings = ScrollSettings()
         sec = SectionFrame("Ground Truth")
         self.x = NoWheelDoubleSpinBox(); self.x.setRange(-1e5, 1e5); self.x.setDecimals(4)
@@ -1245,7 +1245,7 @@ class GroundTruthPage(QObject):
         self.measure_summary.setText(" | ".join(parts))
 
     def export_measurements(self):
-        default = Path("/home/otomasi2/ros/log/agv_gui/ground_truth_measurements_export.csv")
+        default = Path("/home/otomasi2/forclift/log/agv_gui/ground_truth_measurements_export.csv")
         path, _ = QFileDialog.getSaveFileName(self.content, "Export Ground Truth Measurements", str(default), "CSV (*.csv)")
         if path:
             self._write_measurements(Path(path))
@@ -1563,7 +1563,7 @@ class SubsystemPage:
                 self.stats_table.setItem(row, col, QTableWidgetItem(text))
 
     def export(self):
-        base = Path("/home/otomasi2/ros/log/agv_gui/manual_exports")
+        base = Path("/home/otomasi2/forclift/log/agv_gui/manual_exports")
         base.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe = "".join(ch if ch.isalnum() else "_" for ch in self.title)
@@ -1880,7 +1880,7 @@ class ImagePage:
         img = self._pending_image
         if img is None:
             return
-        base = Path("/home/otomasi2/ros/log/agv_gui/manual_exports")
+        base = Path("/home/otomasi2/forclift/log/agv_gui/manual_exports")
         base.mkdir(parents=True, exist_ok=True)
         path = base / f"{self.title.replace(' ','_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         img.save(str(path), "PNG")

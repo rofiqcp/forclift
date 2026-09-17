@@ -48,8 +48,8 @@ class ExperimentSession:
 
 
 class ExperimentManager:
-    def __init__(self, workspace: str = "/home/otomasi2/ros"):
-        self.workspace = Path(workspace)
+    def __init__(self, workspace: str | None = None):
+        self.workspace = Path(workspace or os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or (Path.home() / 'forclift'))
         self.base_dir = self.workspace / "log" / "agv_gui"
         self.current: Optional[ExperimentSession] = None
 

@@ -7,7 +7,7 @@
 #   validate_v46_sensor_live.sh goal         # + non-empty /smac_plan (after Nav2 Goal)
 set -euo pipefail
 MODE="${1:-sensor}"
-WS="${AGV_WS:-/home/otomasi2/ros}"
+WS="${AGV_WS:-/home/otomasi2/forclift}"
 [[ -f /opt/ros/humble/setup.bash ]] || { echo '[V46-LIVE] FAIL /opt/ros/humble/setup.bash missing' >&2; exit 2; }
 [[ -f "$WS/install/setup.bash" ]] || { echo "[V46-LIVE] FAIL $WS/install/setup.bash missing" >&2; exit 2; }
 source /opt/ros/humble/setup.bash

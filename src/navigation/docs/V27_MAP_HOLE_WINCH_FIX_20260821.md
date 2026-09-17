@@ -23,11 +23,11 @@ The firmware source was cleaned of generated PlatformIO/cache files. Duplicate S
 Clean build:
 
 ```bash
-bash /home/otomasi2/ros/src/navigation/tools/build_map_hole_winch_clean.sh
+bash /home/otomasi2/forclift/src/navigation/tools/build_map_hole_winch_clean.sh
 ```
 
 After starting autonomous mode:
 
 ```bash
-bash /home/otomasi2/ros/src/navigation/tools/verify_map_hole_winch_runtime.sh
+bash /home/otomasi2/forclift/src/navigation/tools/verify_map_hole_winch_runtime.sh
 ```

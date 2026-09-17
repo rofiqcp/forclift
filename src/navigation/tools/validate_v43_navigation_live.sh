@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WS="${AGV_WS:-/home/otomasi2/ros}"
+WS="${AGV_WS:-/home/otomasi2/forclift}"
 if [[ ! -f "$WS/install/setup.bash" ]]; then
   echo '[V43-LIVE] FAIL: workspace is not built; install/setup.bash is missing' >&2
   exit 2

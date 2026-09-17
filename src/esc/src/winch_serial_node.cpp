@@ -25,6 +25,7 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "sensor_msgs/msg/imu.hpp"
+#include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/int32.hpp"
@@ -130,7 +131,6 @@ public:
     bottom_pub_ = create_publisher<std_msgs::msg::Bool>("/winch/bottom_limit", latched);
     pwm_pub_ = create_publisher<std_msgs::msg::Float64>("/winch/pwm_pct", latched);
     direction_pub_ = create_publisher<std_msgs::msg::Int32>("/winch/direction", latched);
-    servo_pub_ = create_publisher<std_msgs::msg::Float64>("/winch/servo_deg", latched);
     raw_pub_ = create_publisher<std_msgs::msg::String>("/winch/raw", rclcpp::QoS(20).reliable());
 
     command_sub_ = create_subscription<std_msgs::msg::String>(
@@ -140,31 +140,33 @@ public:
     // Display-only telemetry used by the STM32 HMI. These subscriptions never
     // command ESC/Nav2/perception; they only mirror already-published ROS state.
     esc_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/esc/ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {esc_ready_ = m->data;});
+      "/esc/ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {esc_ready_ = m->data; last_esc_ready_rx_ = std::chrono::steady_clock::now();});
     drive_connected_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/esc/drive/connected", 10, [this](std_msgs::msg::Bool::SharedPtr m) {drive_connected_ = m->data;});
+      "/esc/drive/connected", 10, [this](std_msgs::msg::Bool::SharedPtr m) {drive_connected_ = m->data; last_drive_connected_rx_ = std::chrono::steady_clock::now();});
     steer_connected_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/esc/steer/connected", 10, [this](std_msgs::msg::Bool::SharedPtr m) {steer_connected_ = m->data;});
+      "/esc/steer/connected", 10, [this](std_msgs::msg::Bool::SharedPtr m) {steer_connected_ = m->data; last_steer_connected_rx_ = std::chrono::steady_clock::now();});
+    encoder_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/esc/steer/encoder_ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {encoder_ready_ = m->data; last_encoder_ready_rx_ = std::chrono::steady_clock::now();});
     motion_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/system/motion_ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {motion_ready_ = m->data;});
+      "/system/motion_ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {motion_ready_ = m->data; last_motion_ready_rx_ = std::chrono::steady_clock::now();});
     nav2_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/system/nav2_ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {nav2_ready_ = m->data;});
+      "/system/nav2_ready", 10, [this](std_msgs::msg::Bool::SharedPtr m) {nav2_ready_ = m->data; last_nav2_ready_rx_ = std::chrono::steady_clock::now();});
     localization_ready_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/system/motion_localization_ready", 10,
-      [this](std_msgs::msg::Bool::SharedPtr m) {localization_ready_ = m->data;});
+      [this](std_msgs::msg::Bool::SharedPtr m) {localization_ready_ = m->data; last_localization_ready_rx_ = std::chrono::steady_clock::now();});
     imu_connected_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/imu/connected", 10, [this](std_msgs::msg::Bool::SharedPtr m) {imu_connected_ = m->data;});
     camera_connected_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/perception/camera_connected", 10,
       [this](std_msgs::msg::Bool::SharedPtr m) {
         camera_connected_ = m->data;
-        last_camera_state_rx_ = std::chrono::steady_clock::now();
+        last_camera_connected_rx_ = std::chrono::steady_clock::now();
       });
     camera_healthy_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/perception/camera_healthy", 10,
       [this](std_msgs::msg::Bool::SharedPtr m) {
         camera_healthy_ = m->data;
-        last_camera_state_rx_ = std::chrono::steady_clock::now();
+        last_camera_healthy_rx_ = std::chrono::steady_clock::now();
       });
 
     // These publishers use SensorDataQoS / BEST_EFFORT in the runtime stack.
@@ -180,12 +182,32 @@ public:
         imu_connected_ = true;
         last_imu_data_rx_ = std::chrono::steady_clock::now();
       });
+    camera_frame_sub_ = create_subscription<sensor_msgs::msg::Image>(
+      "/camera/color/image_raw", sensor_qos,
+      [this](sensor_msgs::msg::Image::SharedPtr) {
+        last_camera_frame_rx_ = std::chrono::steady_clock::now();
+      });
+    camera_status_sub_ = create_subscription<std_msgs::msg::String>(
+      "/camera/color/status", sensor_qos,
+      [this](std_msgs::msg::String::SharedPtr) {
+        last_camera_status_rx_ = std::chrono::steady_clock::now();
+      });
     drive_speed_sub_ = create_subscription<std_msgs::msg::Float64>(
-      "/esc/drive_actual_mps", sensor_qos,
-      [this](std_msgs::msg::Float64::SharedPtr m) {drive_speed_mps_ = m->data;});
+      "/esc/drive_actual_mps", sensor_qos, [this](std_msgs::msg::Float64::SharedPtr m) {
+        drive_speed_mps_ = m->data; last_drive_speed_rx_ = std::chrono::steady_clock::now();
+      });
+    drive_target_sub_ = create_subscription<std_msgs::msg::Float64>(
+      "/esc/drive_target_mps", sensor_qos, [this](std_msgs::msg::Float64::SharedPtr m) {
+        drive_target_mps_ = m->data; last_drive_target_rx_ = std::chrono::steady_clock::now();
+      });
     steering_sub_ = create_subscription<std_msgs::msg::Float64>(
-      "/esc/steering_actual_rad", sensor_qos,
-      [this](std_msgs::msg::Float64::SharedPtr m) {steering_rad_ = m->data;});
+      "/esc/steering_actual_rad", sensor_qos, [this](std_msgs::msg::Float64::SharedPtr m) {
+        steering_rad_ = m->data; last_steering_rx_ = std::chrono::steady_clock::now();
+      });
+    steering_target_sub_ = create_subscription<std_msgs::msg::Float64>(
+      "/esc/steering_target_rad", sensor_qos, [this](std_msgs::msg::Float64::SharedPtr m) {
+        steering_target_rad_ = m->data; last_steering_target_rx_ = std::chrono::steady_clock::now();
+      });
     yolo_perf_sub_ = create_subscription<std_msgs::msg::String>(
       "/obstacle_detection/performance", sensor_qos,
       [this](std_msgs::msg::String::SharedPtr m) {
@@ -201,9 +223,12 @@ public:
         person_count_ = static_cast<int>(std::max(0.0, kv_double(m->data, "detections", 0.0)));
       });
     goal_state_sub_ = create_subscription<std_msgs::msg::String>(
-      "/navigation/goal_state", 10, [this](std_msgs::msg::String::SharedPtr m) {goal_state_ = m->data;});
+      "/navigation/goal_state", 10, [this](std_msgs::msg::String::SharedPtr m) {goal_state_ = m->data; last_goal_state_rx_ = std::chrono::steady_clock::now();});
     planner_status_sub_ = create_subscription<std_msgs::msg::String>(
-      "/navigation/planner_status", 10, [this](std_msgs::msg::String::SharedPtr m) {planner_status_ = m->data;});
+      "/navigation/planner_status", 10, [this](std_msgs::msg::String::SharedPtr m) {
+        planner_status_ = m->data;
+        last_planner_status_rx_ = std::chrono::steady_clock::now();
+      });
     amcl_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
       "/amcl_pose", 10, [this](geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr m) {
         pose_x_ = m->pose.pose.position.x;
@@ -212,13 +237,13 @@ public:
         const double siny = 2.0 * (q.w * q.z + q.x * q.y);
         const double cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
         heading_rad_ = std::atan2(siny, cosy);
-        have_pose_ = true;
+        have_pose_ = true; last_pose_rx_ = std::chrono::steady_clock::now();
       });
     goal_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       "/goal_pose", 10, [this](geometry_msgs::msg::PoseStamped::SharedPtr m) {
         goal_x_ = m->pose.position.x;
         goal_y_ = m->pose.position.y;
-        have_goal_ = true;
+        have_goal_ = true; last_goal_rx_ = std::chrono::steady_clock::now();
       });
 
     publish_connected(false);
@@ -402,7 +427,10 @@ private:
       // Current F411 firmware is session-bound: every normal command is rejected
       // until HOST:HELLO is acknowledged. Do not send legacy STATUS/STOP first.
       const char resync = '\n';
-      (void)::write(fd_, &resync, 1);
+      const ssize_t resync_written = ::write(fd_, &resync, 1);
+      if (resync_written != 1) {
+        RCLCPP_WARN(this->get_logger(), "Failed to write serial resync byte on %s", active_port_.c_str());
+      }
       (void)::tcdrain(fd_);
       if (!write_line("HOST:HELLO:" + std::to_string(host_session_token_))) {
         close_serial(true);
@@ -547,15 +575,7 @@ private:
         std_msgs::msg::Int32 msg;
         msg.data = std::stoi(trim_copy(line.substr(4)));
         direction_pub_->publish(msg);
-      } else if (line.rfind("SERVO:", 0) == 0) {
-        const std::string value = trim_copy(line.substr(6));
-        if (upper_copy(value) == "HOME") {
-          publish_double(servo_pub_, 0.0);
-        } else if (upper_copy(value) == "TOP") {
-          publish_double(servo_pub_, 195.0);
-        } else {
-          publish_double(servo_pub_, std::stod(value));
-        }
+
       }
     } catch (const std::exception &) {
       // Firmware also emits human-readable diagnostic lines; malformed numeric
@@ -590,67 +610,94 @@ private:
   bool publish_hmi_sync()
   {
     if (fd_ < 0 || !handshake_confirmed_ || awaiting_host_session_) return true;
-
     const auto now = std::chrono::steady_clock::now();
-    const auto age_ms = [now](const std::chrono::steady_clock::time_point & stamp) -> std::uint32_t {
-      if (stamp.time_since_epoch().count() == 0) return 0xFFFFFFFFU;
+    const auto age_ms = [now](const std::chrono::steady_clock::time_point &stamp)->std::uint32_t {
+      if (stamp.time_since_epoch().count()==0) return 0xFFFFFFFFU;
       if (now <= stamp) return 0U;
-      const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - stamp).count();
-      return static_cast<std::uint32_t>(std::min<std::int64_t>(ms, 0xFFFFFFFELL));
+      const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(now-stamp).count();
+      return static_cast<std::uint32_t>(std::min<std::int64_t>(ms,0xFFFFFFFELL));
     };
-    const auto b = [](bool v) {return v ? 1 : 0;};
+    const auto fresh=[&](const std::chrono::steady_clock::time_point &stamp,std::uint32_t limit){
+      const auto a=age_ms(stamp); return a!=0xFFFFFFFFU && a<=limit;
+    };
+    const auto b=[](bool v){return v?1:0;};
+    const auto number_line=[this](const char *key,double value,int precision=3){
+      std::ostringstream out; out.setf(std::ios::fixed); out<<key<<std::setprecision(precision)<<value;
+      return write_line(out.str());
+    };
 
-    // Same truth source as the local GUI: current ROS telemetry/health state.
-    // Heartbeat is sent every sync cycle (< F411 2.5 s steady timeout).
-    const std::uint32_t imu_age = age_ms(last_imu_data_rx_);
-    const bool imu_online = imu_connected_ && (imu_age == 0xFFFFFFFFU || imu_age <= 3000U);
-    const std::uint32_t cam_age = age_ms(last_camera_state_rx_);
-    const bool camera_online = camera_connected_ && (cam_age == 0xFFFFFFFFU || cam_age <= 4000U);
-    const std::uint32_t yolo_age = age_ms(last_yolo_rx_);
-    const bool perception_online = camera_online && camera_healthy_ &&
-      (yolo_perf_seen_ ? yolo_age <= 4000U : true);
+    const std::uint32_t imu_age=age_ms(last_imu_data_rx_);
+    const std::uint32_t cam_age=std::min({
+      age_ms(last_camera_frame_rx_), age_ms(last_camera_status_rx_),
+      age_ms(last_camera_connected_rx_)});
+    const std::uint32_t yolo_age=age_ms(last_yolo_rx_);
+
+    // Keep TFT status aligned with the browser HMI: fresh measured telemetry is
+    // authoritative, while connected/ready flags are supplemental diagnostics.
+    const bool imu_online=fresh(last_imu_data_rx_,3000U);
+    const bool camera_online=fresh(last_camera_frame_rx_,5000U) ||
+      fresh(last_camera_status_rx_,8000U) ||
+      (camera_connected_ && fresh(last_camera_connected_rx_,5000U));
+    const bool camera_health_ok=!fresh(last_camera_healthy_rx_,8000U) || camera_healthy_;
+    const bool perception_online=camera_online && camera_health_ok &&
+      (!yolo_perf_seen_ || yolo_age<=4000U);
+    const bool esc_online=esc_ready_ && fresh(last_esc_ready_rx_,4000U);
+    const bool drive_online=drive_connected_ && fresh(last_drive_connected_rx_,4000U);
+    const bool steer_online=steer_connected_ && fresh(last_steer_connected_rx_,4000U);
+    const bool encoder_online=encoder_ready_ && fresh(last_encoder_ready_rx_,4000U);
+    const bool motion_online=motion_ready_ && fresh(last_motion_ready_rx_,4000U);
+    const bool pose_fresh=have_pose_ && fresh(last_pose_rx_,5000U);
+    const bool nav2_online=(nav2_ready_ && fresh(last_nav2_ready_rx_,4000U)) ||
+      fresh(last_planner_status_rx_,5000U);
+    const bool localization_online=(localization_ready_ &&
+      fresh(last_localization_ready_rx_,4000U)) || pose_fresh;
+    const bool drive_value_fresh=fresh(last_drive_speed_rx_,3000U);
+    const bool drive_target_fresh=fresh(last_drive_target_rx_,3000U);
+    const bool steer_value_fresh=fresh(last_steering_rx_,3000U);
+    const bool steer_target_fresh=fresh(last_steering_target_rx_,3000U);
+    const bool goal_fresh=have_goal_ && fresh(last_goal_rx_,120000U);
 
     if (!write_line("ROS:1") ||
-        !write_line(std::string("IMU:") + (imu_online ? "1" : "0")) ||
-        !write_line(std::string("IMUSTATUS:") + (imu_online ? "READY" : "OFFLINE")) ||
-        !write_line(std::string("CAM:") + (camera_online ? "1" : "0")) ||
-        !write_line(std::string("PER:") + (perception_online ? "1" : "0")) ||
-        !write_line(std::string("MOTION:") + (motion_ready_ ? "1" : "0")) ||
-        !write_line(std::string("NAV2:") + (nav2_ready_ ? "1" : "0")) ||
-        !write_line(std::string("ESC:") + (esc_ready_ ? "1" : "0")) ||
-        !write_line(std::string("VESC_LINK:") + ((drive_connected_ || steer_connected_) ? "1" : "0")) ||
-        !write_line(std::string("ENC:") + (steer_connected_ ? "1" : "0")) ||
-        !write_line("FPS:" + std::to_string(static_cast<int>(std::clamp(std::lround(yolo_fps_), 0L, 255L))))) {
-      return false;
-    }
+        !write_line(std::string("IMU:")+(imu_online?"1":"0")) ||
+        !write_line(std::string("IMUSTATUS:")+(imu_online?"READY":"OFFLINE")) ||
+        !write_line(std::string("CAM:")+(camera_online?"1":"0")) ||
+        !write_line(std::string("PER:")+(perception_online?"1":"0")) ||
+        !write_line(std::string("MOTION:")+(motion_online?"1":"0")) ||
+        !write_line(std::string("NAV2:")+(nav2_online?"1":"0")) ||
+        !write_line(std::string("ESC:")+(esc_online?"1":"0")) ||
+        !write_line(std::string("VESC_LINK:")+((drive_online&&steer_online)?"1":"0")) ||
+        !write_line(std::string("VESC_DRIVE:")+(drive_online?"1":"0")) ||
+        !write_line(std::string("VESC_STEER:")+(steer_online?"1":"0")) ||
+        !write_line(std::string("ENC:")+(encoder_online?"1":"0")) ||
+        !write_line("FPS:"+std::to_string(static_cast<int>(std::clamp(std::lround(yolo_fps_),0L,255L))))) return false;
 
-    // Keep the F411 domain freshness model satisfied using the same session-bound
-    // protocol as the current firmware. Only lightweight groups needed for the
-    // sensor/HMI status are mirrored here; no actuator command is bypassed.
-    {
-      std::ostringstream payload;
-      payload.setf(std::ios::fixed);
-      payload << b(camera_online) << ',' << b(perception_online) << ','
-              << std::setprecision(2) << yolo_fps_ << ',' << yolo_inference_ms_
-              << ",0,0,ROS," << b(yolo_perf_seen_);
-      if (!send_f4x3("PER", "CAM", per_cam_seq_, cam_age, payload.str())) return false;
-    }
-    {
-      const double imu_yaw_deg = imu_yaw_rad_ * 180.0 / M_PI;
-      std::ostringstream payload;
-      payload.setf(std::ios::fixed);
-      payload << b(imu_online) << ',' << std::setprecision(2) << imu_yaw_deg << ','
-              << imu_yaw_deg << ",0.00";
-      if (!send_f4x3("NAV", "IMU", nav_imu_seq_, imu_age, payload.str())) return false;
-    }
-    {
-      std::ostringstream payload;
-      payload.setf(std::ios::fixed);
-      payload << b(nav2_ready_ || localization_ready_) << ',' << b(nav2_ready_)
-              << ",0,0,0.000,0.000," << (nav2_ready_ ? "READY" : "WAIT")
-              << ',' << (nav2_ready_ ? "READY" : "WAIT") << ",WAIT";
-      if (!send_f4x3("NAV", "NAV2", nav_nav2_seq_, 0U, payload.str())) return false;
-    }
+    if (drive_value_fresh && (!number_line("SPD:",drive_speed_mps_*3.6,2) || !number_line("DRIVE_ACT:",drive_speed_mps_,3))) return false;
+    if (drive_target_fresh && !number_line("DRIVE_TGT:",drive_target_mps_,3)) return false;
+    if (steer_value_fresh && !number_line("STEER_ACTUAL:",steering_rad_*180.0/M_PI,2)) return false;
+    if (steer_target_fresh && !number_line("STEER_TARGET:",steering_target_rad_*180.0/M_PI,2)) return false;
+    if (steer_value_fresh && steer_target_fresh && !number_line("STEER_ERR:",(steering_target_rad_-steering_rad_)*180.0/M_PI,2)) return false;
+    if (pose_fresh && !number_line("HEAD:",heading_rad_*180.0/M_PI,2)) return false;
+    if (pose_fresh && goal_fresh && !number_line("GOAL_DIST:",std::hypot(goal_x_-pose_x_,goal_y_-pose_y_),3)) return false;
+    if (!write_line(std::string("LOCSTATE:")+(localization_online?"READY":"WAIT"))) return false;
+
+    std::string nav="IDLE"; const std::string gs=upper_copy(goal_state_);
+    if (gs.find("SUCCEEDED")!=std::string::npos || gs.find("ARRIVED")!=std::string::npos) nav="ARRIVED";
+    else if (gs.find("ABORT")!=std::string::npos || gs.find("FAIL")!=std::string::npos || gs.find("REJECT")!=std::string::npos) nav="FAILED";
+    else if (gs.find("CANCEL")!=std::string::npos || gs.find("STOP")!=std::string::npos) nav="STOPPED";
+    else if (gs.find("ACTIVE")!=std::string::npos || gs.find("NAVIGAT")!=std::string::npos) nav="NAVIGATING";
+    if (!write_line("NAV:"+nav) || !write_line(std::string("TARGET:")+(goal_fresh?"NAV GOAL":"NONE")) ||
+        !write_line(std::string("OBS:")+(perception_online && yolo_detections_>0?"1":"0")) ||
+        !write_line(std::string("OBJ:")+(perception_online && yolo_detections_>0?"DETECTED":"CLEAR"))) return false;
+
+    { std::ostringstream payload; payload.setf(std::ios::fixed);
+      payload<<b(camera_online)<<','<<b(perception_online)<<','<<std::setprecision(2)<<yolo_fps_<<','<<yolo_inference_ms_<<",0,0,ROS,"<<b(yolo_perf_seen_);
+      if (!send_f4x3("PER","CAM",per_cam_seq_,cam_age,payload.str())) return false; }
+    { const double yaw=imu_yaw_rad_*180.0/M_PI; std::ostringstream payload; payload.setf(std::ios::fixed);
+      payload<<b(imu_online)<<','<<std::setprecision(2)<<yaw<<','<<yaw<<",0.00";
+      if (!send_f4x3("NAV","IMU",nav_imu_seq_,imu_age,payload.str())) return false; }
+    { std::ostringstream payload; payload.setf(std::ios::fixed);
+      payload<<b(nav2_online||localization_online)<<','<<b(nav2_online)<<",0,0,0.000,0.000,"<<(nav2_online?"READY":"WAIT")<<','<<(nav2_online?"READY":"WAIT")<<",WAIT";
+      if (!send_f4x3("NAV","NAV2",nav_nav2_seq_,0U,payload.str())) return false; }
     return true;
   }
 
@@ -671,22 +718,11 @@ private:
     if (command == "UP" || command == "DOWN" || command == "STOP" ||
       command == "UP HOME" || command == "UP 1" || command == "UP 2" ||
       command == "DOWN HOME" || command == "DOWN 1" || command == "DOWN 2" ||
-      command == "STATUS" || command == "WINCH STATUS" || command == "LIMITS" || command == "CONFIG" ||
-      command == "SERVOTEST")
+      command == "STATUS" || command == "WINCH STATUS" || command == "LIMITS" || command == "CONFIG")
     {
       return true;
     }
-    if (command.rfind("SERVO ", 0) != 0) {
-      return false;
-    }
-    try {
-      const std::string value = trim_copy(command.substr(6));
-      std::size_t used = 0;
-      const int angle = std::stoi(value, &used);
-      return used == value.size() && angle >= 0 && angle <= 195;
-    } catch (const std::exception &) {
-      return false;
-    }
+    return false;
   }
 
   void publish_connected(bool connected)
@@ -734,6 +770,7 @@ private:
   bool esc_ready_{false};
   bool drive_connected_{false};
   bool steer_connected_{false};
+  bool encoder_ready_{false};
   bool motion_ready_{false};
   bool nav2_ready_{false};
   bool localization_ready_{false};
@@ -742,7 +779,9 @@ private:
   bool camera_healthy_{false};
   bool yolo_perf_seen_{false};
   double drive_speed_mps_{0.0};
+  double drive_target_mps_{0.0};
   double steering_rad_{0.0};
+  double steering_target_rad_{0.0};
   double imu_yaw_rad_{0.0};
   double yolo_fps_{0.0};
   double yolo_inference_ms_{0.0};
@@ -778,14 +817,33 @@ private:
   std::chrono::steady_clock::time_point next_hmi_sync_{std::chrono::steady_clock::now()};
   std::chrono::steady_clock::time_point last_rx_{std::chrono::steady_clock::now()};
   std::chrono::steady_clock::time_point last_imu_data_rx_{};
-  std::chrono::steady_clock::time_point last_camera_state_rx_{};
+  std::chrono::steady_clock::time_point last_camera_connected_rx_{};
+  std::chrono::steady_clock::time_point last_camera_healthy_rx_{};
+  std::chrono::steady_clock::time_point last_camera_frame_rx_{};
+  std::chrono::steady_clock::time_point last_camera_status_rx_{};
   std::chrono::steady_clock::time_point last_yolo_rx_{};
+  std::chrono::steady_clock::time_point last_esc_ready_rx_{};
+  std::chrono::steady_clock::time_point last_drive_connected_rx_{};
+  std::chrono::steady_clock::time_point last_steer_connected_rx_{};
+  std::chrono::steady_clock::time_point last_encoder_ready_rx_{};
+  std::chrono::steady_clock::time_point last_motion_ready_rx_{};
+  std::chrono::steady_clock::time_point last_nav2_ready_rx_{};
+  std::chrono::steady_clock::time_point last_localization_ready_rx_{};
+  std::chrono::steady_clock::time_point last_drive_speed_rx_{};
+  std::chrono::steady_clock::time_point last_drive_target_rx_{};
+  std::chrono::steady_clock::time_point last_steering_rx_{};
+  std::chrono::steady_clock::time_point last_steering_target_rx_{};
+  std::chrono::steady_clock::time_point last_goal_state_rx_{};
+  std::chrono::steady_clock::time_point last_planner_status_rx_{};
+  std::chrono::steady_clock::time_point last_pose_rx_{};
+  std::chrono::steady_clock::time_point last_goal_rx_{};
 
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr command_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr esc_ready_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr drive_connected_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr steer_connected_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr encoder_ready_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr motion_ready_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr nav2_ready_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr localization_ready_sub_;
@@ -793,8 +851,12 @@ private:
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr camera_connected_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr camera_healthy_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_data_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr camera_frame_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr camera_status_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr drive_speed_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr drive_target_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr steering_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr steering_target_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr yolo_perf_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr person_perf_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr goal_state_sub_;
@@ -809,7 +871,6 @@ private:
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bottom_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr pwm_pub_;
   rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr direction_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr servo_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr raw_pub_;
 };
 

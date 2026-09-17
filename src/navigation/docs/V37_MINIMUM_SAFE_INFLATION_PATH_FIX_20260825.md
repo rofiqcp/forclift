@@ -51,8 +51,8 @@ Jika path masih gagal pada V37, penyebab berikutnya bukan radius tambahan:
 ## Build dan verifikasi
 
 ```bash
-cd /home/otomasi2/ros
-bash src/navigation/tools/rebuild_navigation_clean.sh /home/otomasi2/ros
+cd /home/otomasi2/forclift
+bash src/navigation/tools/rebuild_navigation_clean.sh /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 python3 src/navigation/tools/verify_v37_minimum_safe_inflation.py

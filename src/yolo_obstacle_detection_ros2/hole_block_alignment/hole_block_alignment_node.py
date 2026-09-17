@@ -23,6 +23,7 @@ Keys (when --display 1): S=shot  R=reset  SPACE=pause  Q=quit
 """
 
 import argparse
+from collections import deque
 import csv
 import json
 import hashlib
@@ -756,15 +757,14 @@ class HoleGuidedAlignment:
             m.filtered_error_yaw_deg = nan()
 
         if basic_valid:
-            # Lateral output uses the straight-line center-to-center distance from
-            # the selected middle block to the rectangular camera setpoint center.
-            # Preserve the existing ROS sign convention: negative=left, positive=right.
+            # Lateral means ONLY left/right displacement relative to the calibrated
+            # fork/camera reference on the image X axis. Image Y is longitudinal
+            # (approach/distance information) and must not inflate lateral error.
+            # Preserve the ROS sign convention: negative=left, positive=right.
             bx, by = best["cx"], best["cy"]
             m.alignment_center = (bx, by)
             dx_px = bx - self.setpoint_x
-            dy_px = by - self.setpoint_y
-            straight_px = math.hypot(dx_px, dy_px)
-            raw_px = -straight_px if dx_px < 0.0 else straight_px
+            raw_px = dx_px
             m.raw_error_lateral_px = raw_px
             if self.prev_lat_px_f is not None and \
                     abs(raw_px - self.prev_lat_px_f) > self.max_lat_jump_m / (self.mpp or 1e-9):
@@ -922,7 +922,7 @@ class HoleBlockAlignmentNode(Node):
         super().__init__("hole_block_alignment_node")
 
         self.declare_parameter("config",
-            "/home/otomasi2/ros/src/yolo_obstacle_detection_ros2/hole_block_alignment/alignment_realtime.yaml")
+            "/home/otomasi2/forclift/config/runtime/yolo_obstacle_detection_ros2/alignment_realtime.yaml")
         self.declare_parameter("image_topic", "/camera/color/image_raw")
         self.declare_parameter("camera_info_topic", "/camera/color/camera_info")
         self.declare_parameter("obstacle_topic", "/obstacle_detection/obstacles")
@@ -935,12 +935,21 @@ class HoleBlockAlignmentNode(Node):
         # operator-side preview cap; autonomous V25 keeps this at 0 so no ROS
         # topic frequency is reduced by the performance fix.
         self.declare_parameter("visualization_fps", 0.0)
+        # Camera/YOLO temporal synchronization. The obstacle detector republishes
+        # the source camera header, so alignment can pair each inference result
+        # with the exact RGB frame that produced it.
+        self.declare_parameter("sync_buffer_frames", 60)
+        self.declare_parameter("sync_max_age_sec", 0.35)
+        self.declare_parameter("sync_nearest_tolerance_sec", 0.06)
 
         cfg_path = self.get_parameter("config").value
         display = int(self.get_parameter("display").value)
         save_csv = bool(self.get_parameter("save_csv").value)
         save_video = bool(self.get_parameter("save_output_video").value)
         self.visualization_fps = max(0.0, float(self.get_parameter("visualization_fps").value))
+        self.sync_buffer_frames = max(10, int(self.get_parameter("sync_buffer_frames").value))
+        self.sync_max_age_sec = max(0.05, float(self.get_parameter("sync_max_age_sec").value))
+        self.sync_nearest_tolerance_sec = max(0.0, float(self.get_parameter("sync_nearest_tolerance_sec").value))
 
         cfg_bytes = Path(cfg_path).read_bytes()
         self.config_sha256 = hashlib.sha256(cfg_bytes).hexdigest()
@@ -974,7 +983,7 @@ class HoleBlockAlignmentNode(Node):
 
         # output paths
         out_dir = Path(cfg["video"].get("output_dir",
-                         "/home/otomasi2/ros/log/a2_alignment_validation")).expanduser()
+                         "/home/otomasi2/forclift/log/a2_alignment_validation")).expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y%m%d_%H%M%S")
         self.csv_path = out_dir / f"alignment_{ts}.csv"
@@ -1012,9 +1021,15 @@ class HoleBlockAlignmentNode(Node):
         img_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST, depth=1)
+        # The synchronization subscriber keeps enough source frames queued while
+        # YOLO inference runs. img_cb itself is lightweight and stores references
+        # only, so this avoids losing the exact source frame under executor load.
+        camera_sync_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST, depth=30)
         self.img_sub = self.create_subscription(
             Image, self.get_parameter("image_topic").value,
-            self.img_cb, img_qos)
+            self.img_cb, camera_sync_qos)
         self.camera_info_sub = self.create_subscription(
             CameraInfo, self.get_parameter("camera_info_topic").value,
             self.camera_info_cb, img_qos)
@@ -1035,6 +1050,19 @@ class HoleBlockAlignmentNode(Node):
 
         self.latest_img = None
         self.latest_obs = None
+        # Keep a short zero-copy history of ROS Image messages. YOLO copies the
+        # source image header into ObstacleArray, allowing exact timestamp match.
+        self._image_history = deque(maxlen=self.sync_buffer_frames)
+        self._pending_synced_img = None
+        self._pending_synced_obs = None
+        self._sync_seq = 0
+        self._processed_sync_seq = -1
+        self._sync_matched = 0
+        self._sync_exact = 0
+        self._sync_nearest = 0
+        self._sync_missed = 0
+        self._sync_stale = 0
+        self._last_sync_age_ms = None
         self.camera_fx_raw = None
         self.camera_cx_raw = None
         self.frame_idx = 0
@@ -1049,9 +1077,10 @@ class HoleBlockAlignmentNode(Node):
         self._last_web_status_write = 0.0
         self._web_status_warned = False
 
-        # Poll faster than the camera so a newly arrived frame is picked up
-        # promptly, but tick() below guarantees each image is processed ONCE.
-        self.timer = self.create_timer(1.0 / 30.0, self.tick)
+        # Poll faster than the detector. tick() consumes each synchronized
+        # camera+YOLO pair exactly once; camera-only frames never increment
+        # alignment stability counters.
+        self.timer = self.create_timer(1.0 / 60.0, self.tick)
         # Keep /fork_alignment/state alive while the camera is enumerating or
         # reconnecting. This is an explicit INVALID/WAITING state, not fake
         # alignment data, and prevents an ambiguous persistent "NODE UP" card.
@@ -1090,9 +1119,19 @@ class HoleBlockAlignmentNode(Node):
                 "steering_rad": steering, "yaw_rate": yaw_rate, "speed_mps": speed,
                 "limited": limited, "reason": reason}
 
+    @staticmethod
+    def _stamp_ns(header):
+        try:
+            return int(header.stamp.sec) * 1000000000 + int(header.stamp.nanosec)
+        except Exception:
+            return -1
+
     def img_cb(self, msg):
         self.latest_img = msg
         self._image_seq += 1
+        stamp_ns = self._stamp_ns(msg.header)
+        if stamp_ns >= 0:
+            self._image_history.append((stamp_ns, msg, time.perf_counter()))
 
     def camera_info_cb(self, msg):
         try:
@@ -1106,6 +1145,55 @@ class HoleBlockAlignmentNode(Node):
 
     def obs_cb(self, msg):
         self.latest_obs = msg
+        obs_stamp_ns = self._stamp_ns(msg.header)
+        if obs_stamp_ns < 0:
+            self._sync_missed += 1
+            return
+
+        matched_img = None
+        matched_arrival = None
+        matched_exact = False
+        nearest = None
+        nearest_dt_ns = None
+        # Prefer the exact source frame. If this subscriber dropped that single
+        # BEST_EFFORT camera sample, use only the nearest frame inside a tight
+        # tolerance. Alignment geometry still comes from this ObstacleArray; the
+        # fallback frame is only for synchronized image/ROI context and preview.
+        for stamp_ns, image_msg, arrival_mono in reversed(self._image_history):
+            dt_ns = abs(stamp_ns - obs_stamp_ns)
+            if stamp_ns == obs_stamp_ns:
+                matched_img = image_msg
+                matched_arrival = arrival_mono
+                matched_exact = True
+                break
+            if nearest_dt_ns is None or dt_ns < nearest_dt_ns:
+                nearest_dt_ns = dt_ns
+                nearest = (image_msg, arrival_mono)
+
+        if matched_img is None and nearest is not None and \
+                nearest_dt_ns <= int(self.sync_nearest_tolerance_sec * 1.0e9):
+            matched_img, matched_arrival = nearest
+
+        if matched_img is None:
+            self._sync_missed += 1
+            return
+
+        # Use local monotonic arrival age rather than assuming the camera stamp
+        # and ROS wall clock share exactly the same clock domain.
+        age_sec = max(0.0, time.perf_counter() - matched_arrival)
+        self._last_sync_age_ms = age_sec * 1000.0
+        if age_sec > self.sync_max_age_sec:
+            self._sync_stale += 1
+            return
+
+        self._pending_synced_img = matched_img
+        self._pending_synced_obs = msg
+        self._sync_seq += 1
+        self._sync_matched += 1
+        if matched_exact:
+            self._sync_exact += 1
+        else:
+            self._sync_nearest += 1
 
     def _publish_state(self, state: AlignmentState):
         state.header.stamp = self.get_clock().now().to_msg()
@@ -1182,6 +1270,13 @@ class HoleBlockAlignmentNode(Node):
                 "angular_velocity_cmd": float(self._last_control.get("yaw_rate", 0.0)),
                 "steering_limit_active": bool(self._last_control.get("limited", False)),
                 "control_output_enabled": bool(self.control_output_enabled),
+                "sync_matched": int(self._sync_matched),
+                "sync_exact": int(self._sync_exact),
+                "sync_nearest": int(self._sync_nearest),
+                "sync_missed": int(self._sync_missed),
+                "sync_stale": int(self._sync_stale),
+                "sync_age_ms": num(self._last_sync_age_ms),
+                "sync_max_age_ms": float(self.sync_max_age_sec * 1000.0),
             }
         data["config_sha256"] = self.config_sha256
         data["config_path"] = str(self.get_parameter("config").value)
@@ -1215,13 +1310,15 @@ class HoleBlockAlignmentNode(Node):
         self._last_waiting_state_pub = now
 
     def tick(self):
-        if self.latest_img is None or self._image_seq == self._processed_image_seq:
+        if self._pending_synced_img is None or self._pending_synced_obs is None \
+                or self._sync_seq == self._processed_sync_seq:
             return
-        # Snapshot the message/sequence so a newer DDS callback can safely
-        # replace latest_img while this frame is being processed.
-        img_msg = self.latest_img
-        img_seq = self._image_seq
-        self._processed_image_seq = img_seq
+        # Consume one exact camera+YOLO pair. If a newer inference arrives while
+        # processing, it remains pending for the next tick (latest-result-wins).
+        img_msg = self._pending_synced_img
+        obs_msg = self._pending_synced_obs
+        sync_seq = self._sync_seq
+        self._processed_sync_seq = sync_seq
         try:
             frame = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding="bgr8")
         except Exception as e:
@@ -1238,7 +1335,7 @@ class HoleBlockAlignmentNode(Node):
             self.stage.update_camera_intrinsics(
                 self.camera_fx_raw * scale, self.camera_cx_raw * scale + pad_x)
 
-        m = self.stage.process_frame(canvas, self.latest_obs)
+        m = self.stage.process_frame(canvas, obs_msg)
         m.resize_scale = scale
         m.padding_left = pad_x
         m.padding_top = pad_y

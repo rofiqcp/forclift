@@ -36,10 +36,10 @@ was localization initialization:
 From the workspace containing this replacement `src` directory:
 
 ```bash
-cd /home/otomasi2/ros
-bash src/navigation/tools/rebuild_navigation_clean.sh /home/otomasi2/ros
+cd /home/otomasi2/forclift
+bash src/navigation/tools/rebuild_navigation_clean.sh /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
-source /home/otomasi2/ros/install/setup.bash
+source /home/otomasi2/forclift/install/setup.bash
 python3 src/navigation/tools/verify_v34_amcl_costmap_sensors.py
 ```
 
@@ -70,7 +70,7 @@ In a second terminal:
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/otomasi2/ros/install/setup.bash
+source /home/otomasi2/forclift/install/setup.bash
 AUTONOMOUS_CHECK_SECONDS=20 \
 AUTONOMOUS_CHECK_REQUIRE_PERCEPTION=0 \
 ros2 run navigation autonomous_runtime_check.py

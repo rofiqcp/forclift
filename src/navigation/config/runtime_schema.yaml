@@ -18,7 +18,10 @@ managed_files:
     collision_monitor.yaml: 3
     autonomy_health.yaml: 1
     manual_motion_health.yaml: 1
+    mission_fsm.yaml: 1
+    gui/interface.yaml: 1
   esc:
+    ackermann_dual_vesc.yaml: 1
     ackermann_1_board.yaml: 4
     ackermann_2_board.yaml: 3
     keyboard_teleop.yaml: 2

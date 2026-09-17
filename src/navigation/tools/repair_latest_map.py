@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Repair /home/otomasi2/ros/maps/latest_map.txt from an existing valid map.
+"""Repair /home/otomasi2/forclift/maps/latest_map.txt from an existing valid map.
 
 Priority:
-  1. Valid map_*.yaml under /home/otomasi2/ros/maps
+  1. Valid map_*.yaml under /home/otomasi2/forclift/maps
   2. Valid current Map 1/2/3 under src/navigation/maps
   3. Valid maps under src_backup*/navigation/maps, src_*/navigation/maps,
      and install/navigation/share/navigation/maps
@@ -18,7 +18,7 @@ import re
 import sys
 import tempfile
 
-WS = Path('/home/otomasi2/ros')
+WS = Path('/home/otomasi2/forclift')
 PERSISTENT = WS / 'maps'
 CURRENT = WS / 'src' / 'navigation' / 'maps'
 POINTER = PERSISTENT / 'latest_map.txt'

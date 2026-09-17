@@ -21,7 +21,7 @@ class LidarSafetyConfigError(RuntimeError):
 
 
 def _runtime_root() -> Path:
-    ws = Path(os.path.expanduser(os.environ.get('AGV_WS', '/home/otomasi2/ros')))
+    ws = Path(os.path.expanduser((os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or str(Path.home() / 'forclift'))))
     return Path(os.path.expanduser(os.environ.get(
         'AGV_RUNTIME_CONFIG_ROOT', str(ws / 'config' / 'runtime'))))
 

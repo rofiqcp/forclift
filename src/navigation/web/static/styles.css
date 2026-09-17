@@ -117,3 +117,58 @@ html,body{background:var(--bg)}
 .obstacle-corridor-head b.dynamic{color:#ffb35c}
 .obstacle-corridor-head b.static-remove{color:#ff5964;font-weight:900;letter-spacing:.35px}
 #expScanObstacleAction{white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
+
+/* Build Map operational workspace */
+.control-card select{width:100%;margin-top:5px;background:#071113;border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 10px;outline:none}.control-card select:focus{border-color:var(--green)}
+.build-map-actions{margin-top:8px}.build-map-list{display:flex;flex-direction:column;gap:7px}.build-map-item{border:1px solid var(--border);background:#081315;border-radius:10px;padding:9px 10px;display:flex;justify-content:space-between;gap:12px;align-items:center}.build-map-item span{display:block;font-size:8px;color:var(--muted)}.build-map-item b{display:block;font-size:10px;margin-top:2px}.build-map-item em{font-style:normal;font-size:8px;color:var(--dim);text-align:right}.build-map-item.ok{border-color:rgba(54,230,161,.22)}.build-map-item.selected{border-color:rgba(54,230,161,.55);box-shadow:0 0 0 1px rgba(54,230,161,.12) inset}.build-map-item-main{min-width:0;flex:1;cursor:pointer}.build-map-item-main b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.build-map-row-delete{flex:0 0 auto;padding:7px 9px;font-size:8px}
+.modal-field{display:block;font-size:9px;color:var(--muted);margin:0 0 16px}.modal-field input{display:block;width:100%;margin-top:6px;background:#071113;border:1px solid var(--border);border-radius:9px;color:var(--text);padding:10px 11px;outline:none}.modal-field input:focus{border-color:var(--green)}
+.light .control-card select,.light .modal-field input{background:#f9fcfb}
+
+
+/* Camera metric calibration workspace: live perception indicators only. */
+.camera-calibration-card{overflow:hidden}
+.camera-cal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.camera-cal-group{min-width:0;border:1px solid var(--border);background:#191e23;border-radius:8px;padding:11px 12px}
+.camera-cal-group h3{margin:0 0 7px;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--green)}
+.camera-cal-group.lateral h3{color:var(--cyan)}
+.camera-cal-group.yaw h3{color:var(--gold)}
+.camera-cal-group.gate{grid-column:1/-1}
+.camera-cal-group.gate .kv-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:22px}
+.camera-cal-group .kv-list>div{min-width:0}
+.camera-cal-group .kv-list b{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.camera-cal-hint{margin:12px 1px 0}
+.light .camera-cal-group{background:#f7f9fa}
+@media(max-width:1180px){.camera-cal-grid{grid-template-columns:1fr}.camera-cal-group.gate{grid-column:auto}.camera-cal-group.gate .kv-list{grid-template-columns:1fr}}
+
+
+/* Camera lateral pixel/cm calibration table. Front-end only sampling; APPLY writes only scale YAML. */
+.camera-pixel-calibrator{margin-top:12px;border:1px solid rgba(108,168,200,.35);background:#1b2329;border-radius:8px;padding:12px}
+.pixel-cal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:9px}.pixel-cal-head h3{margin:3px 0 0;font-size:13px}
+.pixel-live-strip,.pixel-scale-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.pixel-live-strip>div,.pixel-scale-summary>div{border:1px solid var(--border);background:#191e23;border-radius:7px;padding:8px 9px}.pixel-live-strip span,.pixel-scale-summary span{display:block;font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.35px}.pixel-live-strip b,.pixel-scale-summary b{display:block;margin-top:3px;font:700 10px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--cyan)}
+.pixel-cal-controls{display:grid;grid-template-columns:minmax(190px,1fr) auto auto auto;gap:7px;align-items:end;margin:9px 0}.pixel-cal-controls label,.pixel-apply-row label{font-size:8px;color:var(--muted)}.pixel-cal-controls input,.pixel-apply-row input{display:block;width:100%;height:34px;margin-top:4px;background:#151b20;border:1px solid var(--border2);border-radius:7px;color:var(--text);padding:6px 8px;font:10px ui-monospace,SFMono-Regular,Consolas,monospace;outline:none}.pixel-cal-controls input:focus,.pixel-apply-row input:focus{border-color:var(--cyan)}
+.pixel-apply-row{display:grid;grid-template-columns:minmax(200px,320px) auto;gap:8px;align-items:end;margin:9px 0}.pixel-apply-row button{height:34px}
+.pixel-table-wrap{max-width:100%;overflow:auto;border:1px solid var(--border);border-radius:7px;margin-top:9px}.pixel-cal-table{width:100%;min-width:700px;border-collapse:collapse;font-size:8px}.pixel-cal-table th,.pixel-cal-table td{padding:7px 8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}.pixel-cal-table th{position:sticky;top:0;background:#303842;color:var(--gold);font-size:7px;letter-spacing:.3px}.pixel-cal-table th:first-child,.pixel-cal-table td:first-child{text-align:center}.pixel-cal-table tbody tr:last-child td{border-bottom:0}.pixel-cal-table tbody td{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.camera-pixel-calibrator code{font:8px ui-monospace;color:var(--cyan)}
+.light .camera-pixel-calibrator,.light .pixel-live-strip>div,.light .pixel-scale-summary>div{background:#f7f9fa}.light .pixel-cal-controls input,.light .pixel-apply-row input{background:#fff}
+@media(max-width:1180px){.pixel-live-strip,.pixel-scale-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.pixel-cal-controls{grid-template-columns:1fr 1fr}.pixel-apply-row{grid-template-columns:1fr auto}}
+@media(max-width:720px){.pixel-live-strip,.pixel-scale-summary,.pixel-cal-controls,.pixel-apply-row{grid-template-columns:1fr}.pixel-cal-controls button,.pixel-apply-row button{width:100%}}
+
+/* Calibration card: compact like the other commissioning panels, expand on click. */
+.camera-calibration-card{transition:border-color .16s ease,box-shadow .16s ease}
+.camera-calibration-card:not(.expanded){cursor:pointer}
+.camera-calibration-card:not(.expanded):hover{border-color:var(--border2);box-shadow:0 14px 38px rgba(0,0,0,.26)}
+.camera-cal-summary{outline:none}.camera-cal-summary:focus-visible{box-shadow:inset 0 0 0 1px var(--cyan);border-radius:6px}
+.camera-cal-summary-status{display:flex;align-items:center;gap:8px}.camera-cal-chevron{font:700 24px/1 ui-monospace;color:var(--muted);transition:transform .16s ease}.camera-calibration-card.expanded .camera-cal-chevron{color:var(--cyan)}
+.camera-cal-open-hint{margin:8px 0 0}.camera-cal-details[hidden]{display:none!important}.camera-calibration-card.expanded{grid-column:1/-1}.camera-cal-details{margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.camera-cal-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:9px}.camera-cal-detail-head h3{margin:3px 0 0;font-size:15px}
+
+/* Live camera pixel ruler used only inside expanded calibration. */
+.pixel-measure-layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(260px,.75fr);gap:10px;align-items:start}
+.pixel-measure-stage{position:relative;width:100%;aspect-ratio:16/9;min-height:300px;background:#090d11;border:1px solid var(--border2);border-radius:8px;overflow:hidden}
+.pixel-measure-stage img,.pixel-measure-stage canvas{position:absolute;inset:0;width:100%;height:100%}.pixel-measure-stage img{object-fit:contain;display:none}.pixel-measure-stage canvas{z-index:2;cursor:crosshair;touch-action:none;outline:none}
+.pixel-measure-placeholder{position:absolute;inset:0;z-index:1;display:grid;place-items:center;color:var(--dim);font:10px ui-monospace;pointer-events:none}
+.pixel-measure-side{display:grid;gap:9px}.pixel-measure-values{display:grid;grid-template-columns:1fr 1fr;gap:7px}.pixel-measure-values>div{border:1px solid var(--border);background:#191e23;border-radius:7px;padding:8px 9px}.pixel-measure-values span{display:block;font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.35px}.pixel-measure-values b{display:block;margin-top:3px;font:700 9px ui-monospace;color:var(--cyan);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pixel-measure-cm-label{font-size:8px;color:var(--muted)}.pixel-measure-cm-label input{display:block;width:100%;height:34px;margin-top:4px;background:#151b20;border:1px solid var(--border2);border-radius:7px;color:var(--text);padding:6px 8px;font:10px ui-monospace;outline:none}.pixel-measure-cm-label input:focus{border-color:var(--cyan)}
+.pixel-measure-actions{display:grid;grid-template-columns:1fr auto;gap:7px}.pixel-measure-actions button{min-height:34px}
+.light .pixel-measure-stage{background:#e9efee}.light .pixel-measure-values>div{background:#f7f9fa}.light .pixel-measure-cm-label input{background:#fff}
+@media(max-width:1180px){.pixel-measure-layout{grid-template-columns:1fr}.pixel-measure-stage{min-height:260px}}
+@media(max-width:720px){.camera-cal-detail-head{flex-direction:column}.camera-cal-detail-head button{width:100%}.pixel-measure-stage{min-height:220px}.pixel-measure-values,.pixel-measure-actions{grid-template-columns:1fr}}

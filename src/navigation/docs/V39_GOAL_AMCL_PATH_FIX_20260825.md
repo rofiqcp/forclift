@@ -76,7 +76,7 @@ initial pose and goal farther inside mapped free space.
 Run from the package source:
 
 ```bash
-cd /home/otomasi2/ros/src/navigation
+cd /home/otomasi2/forclift/src/navigation
 python3 tools/verify_v39_goal_amcl_path.py
 ```
 
@@ -87,7 +87,7 @@ A valid source tree must finish with `0 FAIL`.
 After deploying and rebuilding:
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install --packages-select navigation
 source install/setup.bash
@@ -97,7 +97,7 @@ ros2 launch navigation autonomous.launch.py map:=auto
 In another terminal:
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 run navigation verify_smac_goal_path.py --ros-args -p timeout_sec:=90.0

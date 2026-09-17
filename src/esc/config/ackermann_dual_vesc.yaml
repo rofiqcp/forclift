@@ -1,0 +1,28 @@
+esc_driver:
+  ros__parameters:
+    vehicle_mode: ackermann_dual_vesc
+    board0_port: /dev/vesc_drive
+    board1_port: /dev/vesc_steer
+    baud: 921600
+    cmd_vel_topic: /cmd_vel/actuator
+    odom_topic: /esc/odom
+    odom_frame: odom
+    base_frame: base_footprint
+    wheel_radius: 0.145
+    wheelbase: 0.70
+    track_width: 0.55
+    drive_left_pole_pairs: 15.0
+    drive_right_pole_pairs: 15.0
+    drive_left_gear_ratio: 1.0
+    drive_right_gear_ratio: 1.0
+    drive_left_scale: 1.0
+    drive_right_scale: 1.0
+    max_drive_erpm: 15000.0
+    max_steering_rad: 0.34
+    min_speed_for_steering_mps: 0.08
+    telemetry_timeout_s: 0.30
+    steering_cal_timeout_s: 0.75
+    cmd_timeout_s: 0.25
+    require_steering_calibration_for_motion: true
+    publish_joint_states: true
+    offline_zero_output: true

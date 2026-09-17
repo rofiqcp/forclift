@@ -191,7 +191,7 @@ class RingPlot(QWidget):
         self.layout.addLayout(buttons)
         self.clear_btn.clicked.connect(self.clear)
         self.png_btn.clicked.connect(lambda: self.export_png(
-            Path("/home/otomasi2/ros/log/agv_gui/manual_exports") /
+            Path("/home/otomasi2/forclift/log/agv_gui/manual_exports") /
             f"{self.title.replace(' ', '_')}_{time.strftime('%Y%m%d_%H%M%S')}.png"))
 
     def append(self, values: Dict[str, float], timestamp: Optional[float] = None):

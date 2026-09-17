@@ -32,7 +32,7 @@ while the local controller continues to protect against real/current LiDAR obsta
 ## Build and run
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 rm -rf build/navigation install/navigation
 colcon build --packages-select navigation --symlink-install
 source install/setup.bash
@@ -50,7 +50,7 @@ The launch should print a line similar to:
 In a second terminal:
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 source install/setup.bash
 ros2 run navigation verify_autonomous_freespace.py
 ```

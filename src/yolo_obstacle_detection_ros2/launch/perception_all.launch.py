@@ -2,6 +2,7 @@
 """Complete RGB perception launch: camera + YOLO + hole-block alignment."""
 
 import os
+from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -13,15 +14,24 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     yolo_share = get_package_share_directory('yolo_obstacle_detection_ros2')
-    default_model = '/home/otomasi2/ros/models/yolov8n_agv_forklift.onnx'
-    camera_params = os.path.join(yolo_share, 'config', 'camera_v4l2.yaml')
-    yolo_params = os.path.join(yolo_share, 'config', 'yolo_detection.yaml')
-    alignment_params = os.path.join(
-        yolo_share, 'hole_block_alignment', 'alignment_realtime.yaml')
+    workspace = os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or str(Path.home() / 'forclift')
+    runtime_root = os.environ.get('AGV_RUNTIME_CONFIG_ROOT', os.path.join(workspace, 'config', 'runtime'))
+    runtime_dir = os.path.join(os.path.expanduser(runtime_root), 'yolo_obstacle_detection_ros2')
+
+    def runtime_or_fallback(filename, fallback):
+        candidate = os.path.join(runtime_dir, filename)
+        return candidate if os.path.isfile(candidate) else fallback
+
+    default_model = os.path.join(workspace, 'models', 'yolov8n_agv_forklift_opencv.onnx')
+    default_engine = os.path.join(workspace, 'models', 'yolov8n_agv_forklift_opencv.engine')
+    camera_params = runtime_or_fallback('camera_v4l2.yaml', os.path.join(yolo_share, 'config', 'camera_v4l2.yaml'))
+    yolo_params = runtime_or_fallback('yolo_detection.yaml', os.path.join(yolo_share, 'config', 'yolo_detection.yaml'))
+    alignment_params = runtime_or_fallback(
+        'alignment_realtime.yaml', os.path.join(yolo_share, 'hole_block_alignment', 'alignment_realtime.yaml'))
 
     args = [
         DeclareLaunchArgument('model', default_value=default_model),
-        DeclareLaunchArgument('engine', default_value=''),
+        DeclareLaunchArgument('engine', default_value=default_engine),
         DeclareLaunchArgument('use_tensorrt', default_value='true'),
         DeclareLaunchArgument('enable_camera', default_value='true'),
         DeclareLaunchArgument('enable_yolo', default_value='true'),
@@ -29,8 +39,8 @@ def generate_launch_description():
         DeclareLaunchArgument('enable_pallet_pose', default_value='false',
                               description='Compatibility argument; RGB-only V4L2 has no depth source'),
         DeclareLaunchArgument('camera_device', default_value='auto'),
-        DeclareLaunchArgument('camera_width', default_value='1280'),
-        DeclareLaunchArgument('camera_height', default_value='720'),
+        DeclareLaunchArgument('camera_width', default_value='640'),
+        DeclareLaunchArgument('camera_height', default_value='480'),
         DeclareLaunchArgument('camera_fps', default_value='30'),
         DeclareLaunchArgument('camera_pixel_format', default_value='MJPG'),
         DeclareLaunchArgument('use_sim_time', default_value='false'),

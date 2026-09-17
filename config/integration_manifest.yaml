@@ -1,0 +1,41 @@
+schema_version: 1
+canonical_root: /home/otomasi2/forclift
+runtime_config_root: /home/otomasi2/forclift/config/runtime
+esc:
+  transport: vesc_6_native
+  baud: 921600
+  drive:
+    port: /dev/vesc_drive
+    firmware_role: DRIVE_DUAL_HALL
+    firmware_role_id: 1
+    velocity_authority: dual_hall_erpm
+    required_channels: [left_hall, right_hall]
+  steering:
+    port: /dev/vesc_steer
+    firmware_role: STEER_LEFT_ENCODER
+    firmware_role_id: 2
+    angle_authority: left_abi_encoder
+    required_state: [configured, synced, homed, calibrated]
+  odometry:
+    linear_velocity: average_dual_hall
+    yaw_model: ackermann
+    invalid_feedback_policy: offline_zero_with_large_covariance
+f4gateway:
+  transport: usb_cdc
+  schema: 3
+  responsibilities: [bts7960_winch, top_limit, bottom_limit, tft_hmi, touch, ros_status_display]
+  esc_status_fields: [VESC_LINK, VESC_DRIVE, VESC_STEER, ENC]
+geometry:
+  source: config/runtime/navigation/vehicle_geometry.yaml
+  wheel_radius_m: 0.145
+  wheel_radius_validated: false
+  wheelbase_m: 0.70
+  wheelbase_validated: false
+commissioning_required:
+  - install persistent /dev/vesc_drive and /dev/vesc_steer aliases using physical USB serial IDs
+  - flash DRIVE_DUAL_HALL firmware to traction controller
+  - flash STEER_LEFT_ENCODER firmware to steering controller
+  - run Hall detection/validation for both traction motors with wheels safely lifted
+  - run steering encoder electrical detection, homing, span and center calibration
+  - measure physical wheel radius and wheelbase before setting validation flags true
+  - validate forward signs and 5 m odometry distance before enabling autonomous motion

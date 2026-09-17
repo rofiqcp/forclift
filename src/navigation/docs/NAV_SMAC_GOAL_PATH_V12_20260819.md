@@ -40,7 +40,7 @@ The smaller inflation values are soft-cost margins only. Smac Hybrid-A* still us
 After autonomous launch is READY, in another terminal:
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 source install/setup.bash
 ros2 run navigation verify_smac_goal_path.py
 ```

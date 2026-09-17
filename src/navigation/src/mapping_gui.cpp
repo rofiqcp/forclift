@@ -39,13 +39,13 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/vector3_stamped.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
-#include "std_srvs/srv/trigger.hpp"
 #include "tf2/time.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -56,10 +56,10 @@
 namespace navigation
 {
 
-static constexpr const char * kWorkspace = "/home/otomasi2/ros";
-static constexpr const char * kMapDir = "/home/otomasi2/ros/src/navigation/maps";
-static constexpr const char * kPointerDir = "/home/otomasi2/ros/maps";
-static constexpr const char * kLatestPointer = "/home/otomasi2/ros/maps/latest_map.txt";
+static constexpr const char * kWorkspace = "/home/otomasi2/forclift";
+static constexpr const char * kMapDir = "/home/otomasi2/forclift/src/navigation/maps";
+static constexpr const char * kPointerDir = "/home/otomasi2/forclift/maps";
+static constexpr const char * kLatestPointer = "/home/otomasi2/forclift/maps/latest_map.txt";
 static constexpr const char * kPidFile = "/tmp/agv_mapping_runtime.pid";
 static constexpr double kPi = 3.14159265358979323846;
 
@@ -78,12 +78,12 @@ public:
   {
     const auto sensor_qos = rclcpp::SensorDataQoS();
     scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
-      "/scan_nav", sensor_qos, [this](sensor_msgs::msg::LaserScan::SharedPtr) { last_scan_ = steadyNow(); });
-    lidar_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/lidar/odom", 20, [this](nav_msgs::msg::Odometry::SharedPtr msg) {
+      "/mapping/scan_nav", sensor_qos, [this](sensor_msgs::msg::LaserScan::SharedPtr) { last_scan_ = steadyNow(); });
+    lidar_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      "/mapping/pose", 20, [this](geometry_msgs::msg::PoseStamped::SharedPtr msg) {
         last_lidar_ = steadyNow();
-        lidar_values_ = {msg->pose.pose.position.x, msg->pose.pose.position.y,
-          yawFromQuaternion(msg->pose.pose.orientation) * 180.0 / kPi};
+        lidar_values_ = {msg->pose.position.x, msg->pose.position.y,
+          yawFromQuaternion(msg->pose.orientation) * 180.0 / kPi};
       });
     imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
       "/imu/data", sensor_qos, [this](sensor_msgs::msg::Imu::SharedPtr msg) {
@@ -103,13 +103,12 @@ public:
           yawFromQuaternion(msg->pose.pose.orientation) * 180.0 / kPi};
       });
     map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
-      "/map", rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(),
+      "/mapping/map", rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(),
       [this](nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
         last_map_ = steadyNow();
         latest_map_ = *msg;
         map_dirty_ = true;
       });
-    stop_lidar_client_ = create_client<std_srvs::srv::Trigger>("/lidar/stop_motor");
   }
 
   static double steadyNow()
@@ -122,39 +121,11 @@ public:
     return stamp > 0.0 && steadyNow() - stamp < max_age;
   }
 
-  bool requestLidarStop(double timeout_sec = 1.2)
-  {
-    if (!stop_lidar_client_->wait_for_service(std::chrono::milliseconds(250))) {
-      return false;
-    }
-    auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
-    auto future = stop_lidar_client_->async_send_request(req);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_sec);
-    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
-      rclcpp::spin_some(shared_from_this());
-      if (future.wait_for(std::chrono::milliseconds(10)) == std::future_status::ready) {
-        try {
-          return future.get()->success;
-        } catch (...) {
-          return false;
-        }
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    return false;
-  }
-
   std::optional<std::array<double, 3>> currentMapPose()
   {
-    try {
-      const auto tf = tf_buffer_.lookupTransform("map", "base_footprint", tf2::TimePointZero);
-      return std::array<double, 3>{
-        tf.transform.translation.x,
-        tf.transform.translation.y,
-        yawFromQuaternion(tf.transform.rotation)};
-    } catch (...) {
-      return std::nullopt;
-    }
+    if (!lidar_values_ || !fresh(last_lidar_)) return std::nullopt;
+    return std::array<double, 3>{
+      (*lidar_values_)[0], (*lidar_values_)[1], (*lidar_values_)[2] * kPi / 180.0};
   }
 
   double last_scan_{0.0};
@@ -173,12 +144,11 @@ public:
 
 private:
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr lidar_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr lidar_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3Stamped>::SharedPtr mag_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ekf_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr stop_lidar_client_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
 };
@@ -301,8 +271,8 @@ private:
     status_ekf_ = new QLabel("OFF");
     status_slam_ = new QLabel("OFF");
     const std::vector<std::pair<QString, QLabel *>> rows = {
-      {"LiDAR /scan_nav", status_lidar_}, {"IMU /imu/data", status_imu_},
-      {"EKF /odometry/filtered", status_ekf_}, {"SLAM /map", status_slam_}};
+      {"LiDAR /mapping/scan_nav", status_lidar_}, {"LiDAR pose /mapping/pose", status_imu_},
+      {"IMU/EKF diagnostic only", status_ekf_}, {"SLAM /mapping/map", status_slam_}};
     for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
       status_grid->addWidget(new QLabel(rows[static_cast<size_t>(i)].first), i, 0);
       status_grid->addWidget(rows[static_cast<size_t>(i)].second, i, 1);
@@ -360,8 +330,8 @@ private:
   void refreshUi()
   {
     setStatus(status_lidar_, node_->fresh(node_->last_scan_));
-    setStatus(status_imu_, node_->fresh(node_->last_imu_));
-    setStatus(status_ekf_, node_->fresh(node_->last_ekf_));
+    setStatus(status_imu_, node_->fresh(node_->last_lidar_));
+    setStatus(status_ekf_, node_->fresh(node_->last_ekf_) || node_->fresh(node_->last_imu_));
     setStatus(status_slam_, node_->fresh(node_->last_map_));
     setVector(lidar_labels_, node_->lidar_values_);
     setVector(accel_labels_, node_->accel_values_);
@@ -384,10 +354,10 @@ private:
     } else if (runtime_ && runtime_->state() != QProcess::NotRunning && !stopping_) {
       if (node_->fresh(node_->last_map_)) {
         state_label_->setText("MAPPING ACTIVE");
-      } else if (node_->fresh(node_->last_scan_) && node_->fresh(node_->last_imu_)) {
-        state_label_->setText("SENSORS ACTIVE — menunggu SLAM /map");
+      } else if (node_->fresh(node_->last_scan_)) {
+        state_label_->setText("LIDAR ACTIVE — menunggu SLAM /mapping/map");
       } else {
-        state_label_->setText("STARTING — menunggu LiDAR + IMU + SLAM");
+        state_label_->setText("STARTING — menunggu LiDAR-only SLAM");
       }
     }
   }
@@ -474,15 +444,10 @@ private:
     // an in-flight CP210x recovery helper behind even when the pidfile is gone.
     // Only the narrow sensor/runtime executables and the exact recovery helper
     // command are targeted; unrelated processes are never touched.
-    killPattern("ros2 launch navigation mapping_runtime.launch.py");
-    killPattern("/navigation/lib/navigation/imu_node");
-    killPattern("/navigation/lib/navigation/lidar_node");
-    killPattern("/navigation/lib/navigation/scan_self_filter");
-    killPattern("/navigation/lib/navigation/lidar_safety_health.py");
-    killPattern("/navigation/lib/navigation/resolve_usb_roles.py");
-    killPattern("/navigation/lib/navigation/serial_transport_ready_gate.py");
-    killPattern("^sudo -n /usr/local/sbin/agv-sensor-recover");
-    killPattern("^/usr/local/sbin/agv-sensor-recover");
+    killPattern("ros2 launch navigation mapping_shared_slam.launch.py");
+    killPattern("mapping_scan_self_filter");
+    killPattern("mapping_lidar_odom_bridge");
+    killPattern("mapping_hector_slam_node");
   }
 
   void killPattern(const char * pattern)
@@ -568,7 +533,8 @@ private:
     const QString log_path = QString("%1/log/mapping_gui_cpp_%2.txt").arg(kWorkspace).arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
     runtime_->setStandardOutputFile(log_path, QIODevice::Append);
     runtime_->setWorkingDirectory(kWorkspace);
-    runtime_->start("/usr/bin/setsid", QStringList{"ros2", "launch", "navigation", "mapping_runtime.launch.py", "enable_rviz:=false"});
+    runtime_->start("/usr/bin/setsid", QStringList{"ros2", "launch", "navigation", "mapping_shared_slam.launch.py",
+      "session_control_enabled:=false", "initial_session_enabled:=true"});
     if (!runtime_->waitForStarted(4000)) {
       QMessageBox::critical(this, "START gagal", runtime_->errorString());
       runtime_.reset();
@@ -586,18 +552,18 @@ private:
     start_btn_->setEnabled(false);
     stop_btn_->setEnabled(true);
     reset_btn_->setEnabled(false);
-    state_label_->setText(QString("STARTING MAP %1/3 — menunggu LiDAR + IMU + SLAM").arg(slot));
+    state_label_->setText(QString("STARTING MAP %1/3 — LiDAR-only SLAM").arg(slot));
   }
 
   bool writeMapFiles(int slot, QString & error)
   {
     if (!node_->latest_map_) {
-      error = "Belum ada pesan /map yang bisa disimpan.";
+      error = "Belum ada pesan /mapping/map yang bisa disimpan.";
       return false;
     }
     const auto & map = *node_->latest_map_;
     if (map.info.width == 0 || map.info.height == 0 || map.data.size() != static_cast<size_t>(map.info.width) * map.info.height) {
-      error = "Pesan /map memiliki ukuran/data tidak valid.";
+      error = "Pesan /mapping/map memiliki ukuran/data tidak valid.";
       return false;
     }
 
@@ -718,10 +684,9 @@ private:
       QMessageBox::critical(this, "Map gagal disimpan", error);
       return;
     }
-    state_label_->setText(QString("MAP %1 COMMITTED — stopping LiDAR + IMU").arg(*active_slot_));
+    state_label_->setText(QString("MAP %1 COMMITTED — stopping LiDAR-only mapper").arg(*active_slot_));
     renderMap(*node_->latest_map_, *active_slot_);
     stopping_ = true;
-    node_->requestLidarStop(1.2);
     shutdownRuntime(true);
     loadSavedSlots();
     refreshDataset();
@@ -771,11 +736,9 @@ private:
     if (runtime_started_ || (runtime_ && runtime_->state() != QProcess::NotRunning)) {
       state_label_->setText("RESET — menghentikan mapping aktif...");
       stopping_ = true;
-      if (node_) node_->requestLidarStop(1.2);
       shutdownRuntime(true);
     }
-    // Force-clear any orphaned runtime/sensor processes left behind by a
-    // previous session so START is never blocked by a stale runtime_started_ flag.
+    // Clear only orphaned BAB 4.2 mapping processes; shared sensors stay owned by the main runtime.
     cleanupStaleRuntime();
     runtime_started_ = false;
     stopping_ = false;

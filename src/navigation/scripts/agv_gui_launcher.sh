@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="/usr/bin/python3"
 GUI_ENTRY="$SCRIPT_DIR/agv_gui.py"
-LOG_DIR="/home/otomasi2/ros/log"
+LOG_DIR="/home/otomasi2/forclift/log"
 STARTUP_LOG="$LOG_DIR/agv_gui_startup.log"
 
 mkdir -p "$LOG_DIR"

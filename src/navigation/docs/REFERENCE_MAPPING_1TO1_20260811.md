@@ -64,7 +64,7 @@ Driver LiDAR yang sudah terbukti pada log sebelumnya tetap dipakai karena sudah 
 ## Build bersih
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 rm -rf build/navigation install/navigation
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install --packages-select navigation esc
@@ -80,7 +80,7 @@ ros2 launch navigation map.launch.py
 ## Preflight
 
 ```bash
-bash /home/otomasi2/ros/src/navigation/tools/check_mapping.sh
+bash /home/otomasi2/forclift/src/navigation/tools/check_mapping.sh
 ```
 
 ## Tes pemisahan IMU/LiDAR

@@ -23,15 +23,15 @@ dipakai untuk pemeriksaan tabrakan.
 
 `ensure_stage5_planning_runtime()` selalu memigrasikan local dan global
 costmap ke target V36. Dengan demikian, YAML lama pada
-`/home/otomasi2/ros/config/runtime/navigation/nav2_ackermann.yaml` tidak dapat
+`/home/otomasi2/forclift/config/runtime/navigation/nav2_ackermann.yaml` tidak dapat
 mengembalikan radius `0.55 m`, scaling `12.0`, atau padding non-zero setelah
 rebuild.
 
 ## Build, validasi, dan run
 
 ```bash
-cd /home/otomasi2/ros
-bash src/navigation/tools/rebuild_navigation_clean.sh /home/otomasi2/ros
+cd /home/otomasi2/forclift
+bash src/navigation/tools/rebuild_navigation_clean.sh /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 python3 src/navigation/tools/verify_v36_compact_inflation.py

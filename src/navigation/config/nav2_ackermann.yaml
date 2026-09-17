@@ -318,10 +318,9 @@ global_costmap:
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         enabled: true
-        # The raw saved map is the canonical, lifecycle-proven input.  The
-        # optional derived /nav_map remains available for diagnostics, but it
-        # must never be able to deadlock PlannerServer/global-costmap startup.
-        map_topic: /map
+        # Global planning follows the selected planning map. Raw /map remains
+        # dedicated to AMCL; /nav_map is regenerated and reloaded on every switch.
+        map_topic: /nav_map
         map_subscribe_transient_local: true
         subscribe_to_updates: false
       obstacle_layer:

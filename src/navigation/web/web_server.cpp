@@ -170,8 +170,9 @@ QMap<QString, QString> configCandidates() {
       {"hector", nav + "/hector_autonomous.yaml"},
       {"runtime_schema", nav + "/runtime_schema.yaml"},
       {"manual_motion", nav + "/manual_motion_health.yaml"},
+      {"mission_fsm", nav + "/mission_fsm.yaml"},
       {"gui", nav + "/gui/interface.yaml"},
-      {"esc", esc + "/ackermann_1_board.yaml"},
+      {"esc", esc + "/ackermann_dual_vesc.yaml"},
       {"esc_mux", esc + "/esc_mux.yaml"},
       {"teleop", esc + "/keyboard_teleop.yaml"},
       {"winch", esc + "/winch.yaml"},
@@ -187,7 +188,7 @@ QJsonObject loadConfigSnapshot() {
   QJsonObject files;
   paths["navigation"] = packageConfigDir("navigation", "AGV_CONFIG_DIR");
   paths["esc"] = packageConfigDir("esc", "AGV_ESC_CONFIG_DIR");
-  paths["perception"] = packageConfigDir("perception", "AGV_PERCEPTION_CONFIG_DIR");
+  paths["perception"] = packageConfigDir("yolo_obstacle_detection_ros2", "AGV_PERCEPTION_CONFIG_DIR");
 
   const QMap<QString, QString> candidates = configCandidates();
   for (auto it = candidates.cbegin(); it != candidates.cend(); ++it) {
@@ -204,7 +205,7 @@ QJsonObject loadConfigSnapshot() {
   }
   root["paths"] = paths;
   root["files"] = files;
-  root["model_expected"] = "/home/sirobo/ros/models/yolopv2.pt";
+  root["model_expected"] = QDir((qgetenv("AGV_ROOT").isEmpty() ? QDir::homePath() + "/forclift" : QString::fromUtf8(qgetenv("AGV_ROOT")))).filePath("models/yolov8n_agv_forklift_opencv.onnx");
   root["generated_at_ms"] = nowMs();
   return root;
 }
@@ -784,7 +785,7 @@ QString compactJsonValue(const QJsonValue &value) {
 }
 
 QJsonObject applyPlannerReloadVerified(const RuntimeParameterTarget &target, const QJsonValue &value) {
-  const QString helper = QStringLiteral("/home/otomasi2/ros/src/navigation/scripts/nav2_param_reload_apply.py");
+  const QString helper = QStringLiteral("/home/otomasi2/forclift/src/navigation/scripts/nav2_param_reload_apply.py");
   if (!QFileInfo::exists(helper)) {
     return QJsonObject{{"attempted", true}, {"applied", false}, {"verified", false},
       {"strategy", "planner_restart_configure_verify"}, {"state", "HELPER_MISSING"},
@@ -1560,7 +1561,9 @@ class WebRosBridge {
         {"/winch/port", "winch.port"}, {"/winch/state", "winch.state"}, {"/winch/raw", "winch.raw"},
         {"/obstacle_detection/status", "yolo_status"},
         {"/navigation/planner_status", "planner_status"},
-        {"/mapping/map_stats", "mapping_stats"}};
+        {"/mapping/map_stats", "mapping_stats"},
+        {"/mission/status", "mission_status"},
+        {"/mission/cmd_selector_status", "mission_cmd_selector"}};
     for (const auto &entry : strings) {
       const QString channel = QString::fromLatin1(entry.second);
       subscribe<std_msgs::msg::String>(entry.first, stateQos, [this, channel](std_msgs::msg::String::ConstSharedPtr msg) {
@@ -2186,10 +2189,17 @@ class WebRosBridge {
         {"/esc/steering_feedback_raw_rad", "esc_steer_feedback_raw"},
         {"/esc/steering_actual_rad", "esc_steer_actual"}, {"/esc/yaw_rate_actual_rps", "esc_yaw_rate"},
         {"/esc/kinematic_yaw_rate_rps", "esc_kinematic_yaw_rate"},
+        {"/esc/drive/left/erpm", "esc_drive_left_erpm"},
+        {"/esc/drive/right/erpm", "esc_drive_right_erpm"},
+        {"/esc/drive/left/mechanical_rpm", "esc_drive_left_rpm"},
+        {"/esc/drive/right/mechanical_rpm", "esc_drive_right_rpm"},
+        {"/esc/drive/left/velocity_mps", "esc_drive_left_mps"},
+        {"/esc/drive/right/velocity_mps", "esc_drive_right_mps"},
+        {"/esc/drive/slip_ratio", "esc_drive_slip_ratio"},
         {"/navigation/mppi_closed_loop/velocity_error_mps", "mppi_velocity_error"},
         {"/navigation/mppi_closed_loop/steering_error_rad", "mppi_steering_error"},
         {"/navigation/mppi_closed_loop/yaw_rate_error_rps", "mppi_yaw_error"},
-        {"/winch/pwm_pct", "winch.pwm_pct"}, {"/winch/servo_deg", "winch.servo_deg"}};
+        {"/winch/pwm_pct", "winch.pwm_pct"}};
     for (const auto &entry : floats) {
       const QString channel = QString::fromLatin1(entry.second);
       subscribe<std_msgs::msg::Float64>(entry.first, sensorQos, [this, channel](std_msgs::msg::Float64::ConstSharedPtr msg) {
@@ -2539,6 +2549,179 @@ class LocalHttpServer : public QObject {
   double recordingRateHz_{5.0};
   QVector<QMap<QString, QString>> recordingRows_;
 
+  QString navigationWorkspaceRoot() const {
+    QString workspace = QString::fromUtf8(qgetenv("AGV_ROOT")).trimmed();
+    if (workspace.isEmpty()) workspace = QString::fromUtf8(qgetenv("AGV_WS")).trimmed();
+    if (workspace.isEmpty()) workspace = QDir::home().filePath(QStringLiteral("forclift"));
+    return QDir::cleanPath(workspace);
+  }
+
+  static QString safeNavigationMapName(QString name) {
+    name = name.trimmed();
+    name.remove(QRegularExpression(QStringLiteral("\\.(pgm|yaml)$"), QRegularExpression::CaseInsensitiveOption));
+    name.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_"));
+    name.replace(QRegularExpression(QStringLiteral("_+")), QStringLiteral("_"));
+    while (name.startsWith('_')) name.remove(0, 1);
+    while (name.endsWith('_')) name.chop(1);
+    return name.left(64);
+  }
+
+  static bool pgmDimensions(const QString &path, int *width, int *height) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    const QByteArray data = file.read(4096);
+    int i = 0;
+    auto token = [&]() -> QByteArray {
+      while (i < data.size()) {
+        const unsigned char c = static_cast<unsigned char>(data[i]);
+        if (c == '#') { while (i < data.size() && data[i] != '\n' && data[i] != '\r') ++i; }
+        else if (std::isspace(c)) ++i;
+        else break;
+      }
+      const int start = i;
+      while (i < data.size()) {
+        const unsigned char c = static_cast<unsigned char>(data[i]);
+        if (std::isspace(c) || c == '#') break;
+        ++i;
+      }
+      return data.mid(start, i - start);
+    };
+    const QByteArray magic = token();
+    bool okW = false, okH = false;
+    const int w = token().toInt(&okW), h = token().toInt(&okH);
+    if ((magic != "P5" && magic != "P2") || !okW || !okH || w <= 0 || h <= 0) return false;
+    if (width) *width = w;
+    if (height) *height = h;
+    return true;
+  }
+
+  static QByteArray pgmPreviewPng(const QString &path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    const QByteArray data = file.readAll();
+    int i = 0;
+    auto token = [&]() -> QByteArray {
+      while (i < data.size()) {
+        const unsigned char c = static_cast<unsigned char>(data[i]);
+        if (c == '#') { while (i < data.size() && data[i] != '\n' && data[i] != '\r') ++i; }
+        else if (std::isspace(c)) ++i;
+        else break;
+      }
+      const int start = i;
+      while (i < data.size()) {
+        const unsigned char c = static_cast<unsigned char>(data[i]);
+        if (std::isspace(c) || c == '#') break;
+        ++i;
+      }
+      return data.mid(start, i - start);
+    };
+    const QByteArray magic = token();
+    bool okW = false, okH = false, okM = false;
+    const int w = token().toInt(&okW), h = token().toInt(&okH), maxv = token().toInt(&okM);
+    if ((magic != "P5" && magic != "P2") || !okW || !okH || !okM || w <= 0 || h <= 0 || maxv <= 0) return {};
+    QImage image(w, h, QImage::Format_Grayscale8);
+    if (magic == "P5") {
+      if (i < data.size() && data[i] == '\r' && i + 1 < data.size() && data[i + 1] == '\n') i += 2;
+      else if (i < data.size() && std::isspace(static_cast<unsigned char>(data[i]))) ++i;
+      if (data.size() - i < w * h) return {};
+      for (int y = 0; y < h; ++y) {
+        uchar *row = image.scanLine(y);
+        const uchar *src = reinterpret_cast<const uchar *>(data.constData() + i + y * w);
+        if (maxv == 255) std::memcpy(row, src, static_cast<std::size_t>(w));
+        else for (int x = 0; x < w; ++x) row[x] = static_cast<uchar>(std::clamp((int(src[x]) * 255) / maxv, 0, 255));
+      }
+    } else {
+      for (int y = 0; y < h; ++y) {
+        uchar *row = image.scanLine(y);
+        for (int x = 0; x < w; ++x) {
+          bool ok = false; const int value = token().toInt(&ok); if (!ok) return {};
+          row[x] = static_cast<uchar>(std::clamp((value * 255) / maxv, 0, 255));
+        }
+      }
+    }
+    QByteArray png; QBuffer buffer(&png);
+    if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG")) return {};
+    return png;
+  }
+
+  QJsonObject navigationMapItem(const QString &key, const QString &name, const QString &label,
+                                const QString &source, const QString &pgmPath,
+                                const QString &yamlPath, const QString &previewUrl) const {
+    const QFileInfo pgmInfo(pgmPath), yamlInfo(yamlPath);
+    const bool available = pgmInfo.isFile() && pgmInfo.size() > 0 && yamlInfo.isFile() && yamlInfo.size() > 0;
+    QJsonObject item{{"key", key}, {"name", name}, {"label", label}, {"source", source},
+                     {"available", available}, {"preview_url", previewUrl}};
+    if (!available) return item;
+    int width = 0, height = 0;
+    if (pgmDimensions(pgmPath, &width, &height)) { item["width"] = width; item["height"] = height; }
+    try {
+      const YAML::Node root = YAML::LoadFile(yamlPath.toStdString());
+      if (root["resolution"]) item["resolution"] = root["resolution"].as<double>();
+      if (root["origin"] && root["origin"].IsSequence() && root["origin"].size() >= 2) {
+        item["origin_x"] = root["origin"][0].as<double>();
+        item["origin_y"] = root["origin"][1].as<double>();
+      }
+    } catch (...) {}
+    item["modified_at_ms"] = static_cast<double>(std::max(pgmInfo.lastModified().toMSecsSinceEpoch(), yamlInfo.lastModified().toMSecsSinceEpoch()));
+    return item;
+  }
+
+  QJsonObject navigationMapLibrary() const {
+    const QString root = navigationWorkspaceRoot();
+    const QDir mapDir(QDir(root).filePath(QStringLiteral("src/navigation/maps")));
+    const QDir buildDir(mapDir.filePath(QStringLiteral("build_map")));
+    QJsonArray maps;
+    maps.append(navigationMapItem(QStringLiteral("default"), QStringLiteral("map_Navigation"),
+      QStringLiteral("Navigation Map (Default)"), QStringLiteral("default"),
+      mapDir.filePath(QStringLiteral("map_Navigation.pgm")), mapDir.filePath(QStringLiteral("map_Navigation.yaml")),
+      QStringLiteral("/navigation_map.png")));
+    for (int slot = 1; slot <= 3; ++slot) {
+      QJsonObject item = navigationMapItem(QStringLiteral("saved-") + QString::number(slot),
+        QStringLiteral("map_") + QString::number(slot), QStringLiteral("Map ") + QString::number(slot),
+        QStringLiteral("saved"), mapDir.filePath(QStringLiteral("map_") + QString::number(slot) + QStringLiteral(".pgm")),
+        mapDir.filePath(QStringLiteral("map_") + QString::number(slot) + QStringLiteral(".yaml")),
+        QStringLiteral("/api/navigation/map-preview/saved/") + QString::number(slot) + QStringLiteral(".png"));
+      item["slot"] = slot;
+      maps.append(item);
+    }
+    if (buildDir.exists()) {
+      const QStringList yamls = buildDir.entryList(QStringList() << QStringLiteral("*.yaml"), QDir::Files, QDir::Name);
+      for (const QString &yamlFile : yamls) {
+        const QString name = QFileInfo(yamlFile).completeBaseName();
+        if (name == QStringLiteral("build_map_latest")) continue;
+        const QString pgm = buildDir.filePath(name + QStringLiteral(".pgm"));
+        if (!QFileInfo::exists(pgm)) continue;
+        const QString encoded = QString::fromUtf8(QUrl::toPercentEncoding(name));
+        maps.append(navigationMapItem(QStringLiteral("build:") + encoded, name, name, QStringLiteral("build"),
+          pgm, buildDir.filePath(yamlFile), QStringLiteral("/api/navigation/map-preview/build/") + encoded + QStringLiteral(".png")));
+      }
+    }
+    return QJsonObject{{"ok", true}, {"maps", maps}, {"count", maps.size()}};
+  }
+
+  bool prepareNavigationSelectedMap(const QString &requestedName, QString *message) const {
+    const QString name = safeNavigationMapName(requestedName);
+    if (name.isEmpty()) { if (message) *message = QStringLiteral("Nama Build Map tidak valid"); return false; }
+    const QString root = navigationWorkspaceRoot();
+    const QDir mapDir(QDir(root).filePath(QStringLiteral("src/navigation/maps")));
+    const QDir buildDir(mapDir.filePath(QStringLiteral("build_map")));
+    const QString srcPgm = buildDir.filePath(name + QStringLiteral(".pgm"));
+    const QString srcYaml = buildDir.filePath(name + QStringLiteral(".yaml"));
+    if (!QFileInfo::exists(srcPgm) || !QFileInfo::exists(srcYaml)) { if (message) *message = QStringLiteral("Build Map tidak ditemukan: ") + name; return false; }
+    QFile pgmIn(srcPgm); QFile yamlIn(srcYaml);
+    if (!pgmIn.open(QIODevice::ReadOnly) || !yamlIn.open(QIODevice::ReadOnly | QIODevice::Text)) { if (message) *message = QStringLiteral("Gagal membaca Build Map: ") + name; return false; }
+    QSaveFile pgmOut(mapDir.filePath(QStringLiteral("navigation_selected.pgm")));
+    if (!pgmOut.open(QIODevice::WriteOnly) || pgmOut.write(pgmIn.readAll()) < 0 || !pgmOut.commit()) { if (message) *message = QStringLiteral("Gagal menyiapkan navigation_selected.pgm"); return false; }
+    QString yamlText = QString::fromUtf8(yamlIn.readAll());
+    yamlText.replace(QRegularExpression(QStringLiteral("(?m)^image:\\s*.*$")), QStringLiteral("image: navigation_selected.pgm"));
+    QSaveFile yamlOut(mapDir.filePath(QStringLiteral("navigation_selected.yaml")));
+    if (!yamlOut.open(QIODevice::WriteOnly | QIODevice::Text) || yamlOut.write(yamlText.toUtf8()) < 0 || !yamlOut.commit()) { if (message) *message = QStringLiteral("Gagal menyiapkan navigation_selected.yaml"); return false; }
+    QSaveFile nameOut(mapDir.filePath(QStringLiteral("navigation_selected_name.txt")));
+    if (!nameOut.open(QIODevice::WriteOnly | QIODevice::Text) || nameOut.write((name + QStringLiteral("\n")).toUtf8()) < 0 || !nameOut.commit()) { if (message) *message = QStringLiteral("Gagal menyimpan nama map terpilih"); return false; }
+    if (message) *message = QStringLiteral("Build Map siap untuk Nav2: ") + name;
+    return true;
+  }
+
   // BAB 4.2.4 recorder follows Mapping 1/2/3 without changing the mapping engine.
   int loopRecordingSlot_{0};
   bool loopReferenceValid_{false};
@@ -2603,8 +2786,44 @@ class LocalHttpServer : public QObject {
     if (request.method == "GET" && request.path == "/api/events") return openSse(socket);
     if (request.method == "GET" && request.path == "/api/state") return sendJson(socket, 200, bridge_->snapshot());
     if (request.method == "GET" && request.path == "/api/health") {
-      return sendJson(socket, 200, QJsonObject{{"ok", true}, {"ros", true}, {"read_only", bridge_->readOnly()},
-                                               {"server_time_ms", nowMs()}});
+      const QJsonObject state = bridge_->snapshot();
+      const QJsonObject updated = state.value("__updated").toObject();
+      const qint64 now = nowMs();
+      auto freshBool = [&](const QString &key, qint64 timeoutMs) {
+        const bool value = state.value(key).toBool(false);
+        const qint64 at = static_cast<qint64>(updated.value(key).toDouble(0.0));
+        return value && at > 0 && now >= at && (now - at) <= timeoutMs;
+      };
+      auto freshKey = [&](const QString &key, qint64 timeoutMs) {
+        const qint64 at = static_cast<qint64>(updated.value(key).toDouble(0.0));
+        return at > 0 && now >= at && (now - at) <= timeoutMs;
+      };
+      const bool imuReady = freshBool("connected.imu", 4000) && freshKey("imu", 4000);
+      const bool lidarReady = freshBool("connected.lidar", 4000) &&
+                              (freshKey("lidar", 4000) || freshKey("lidar_raw", 4000));
+      const bool cameraReady = (freshBool("connected.camera", 5000) ||
+                                (state.value("camera_healthy").toBool(false) && freshKey("camera_healthy", 5000))) &&
+                               freshKey("camera_frame", 5000);
+      // /winch/connected is transient-local and is intentionally not republished
+      // every sync period.  Require the latched true state plus fresh live winch
+      // telemetry instead of incorrectly aging out the connection boolean itself.
+      const bool winchReady = state.value("connected.winch").toBool(false) &&
+                              (freshKey("winch.state", 5000) || freshKey("winch.pwm_pct", 5000));
+      const bool escFeedbackReady = freshBool("connected.esc_feedback", 5000);
+      QJsonObject components{
+        {"imu", imuReady}, {"lidar", lidarReady}, {"camera", cameraReady},
+        {"winch_hmi", winchReady}, {"esc_feedback", escFeedbackReady},
+      };
+      int readyCount = 0;
+      for (auto it = components.constBegin(); it != components.constEnd(); ++it)
+        if (it.value().toBool(false)) ++readyCount;
+      // Core HMI/ROSWEB telemetry is integrated only when every non-ESC sensor
+      // domain is fresh. ESC remains reported separately while its hardware is
+      // intentionally under commissioning.
+      const bool telemetryReady = imuReady && lidarReady && cameraReady && winchReady;
+      return sendJson(socket, 200, QJsonObject{{"ok", true}, {"integration_ok", telemetryReady},
+        {"ros", true}, {"telemetry_ready", telemetryReady}, {"ready_components", readyCount},
+        {"components", components}, {"read_only", bridge_->readOnly()}, {"server_time_ms", now}});
     }
     if (request.method == "GET" && request.path == "/api/experiments") return sendJson(socket, 200, experimentCatalogJson());
     if (request.method == "GET" && request.path == "/api/config") return sendJson(socket, 200, loadConfigSnapshot());
@@ -2630,6 +2849,31 @@ class LocalHttpServer : public QObject {
       const QByteArray bytes = bridge_->localCostmapPng();
       if (bytes.isEmpty()) return sendText(socket, 503, "text/plain; charset=utf-8", "Local costmap belum tersedia");
       return sendBytes(socket, 200, "image/png", bytes, {{"Cache-Control", "no-store, max-age=0"}});
+    }
+    if (request.method == "GET" && request.path.startsWith(QStringLiteral("/api/navigation/map-preview/"))) {
+      const QString root = navigationWorkspaceRoot();
+      const QDir mapDir(QDir(root).filePath(QStringLiteral("src/navigation/maps")));
+      QString pgmPath;
+      if (request.path == QStringLiteral("/api/navigation/map-preview/default.png")) {
+        pgmPath = mapDir.filePath(QStringLiteral("map_Navigation.pgm"));
+      } else if (request.path.startsWith(QStringLiteral("/api/navigation/map-preview/saved/"))) {
+        QString slotText = request.path.mid(QStringLiteral("/api/navigation/map-preview/saved/").size());
+        if (slotText.endsWith(QStringLiteral(".png"))) slotText.chop(4);
+        bool slotOk = false; const int slot = slotText.toInt(&slotOk);
+        if (!slotOk || slot < 1 || slot > 3)
+          return sendJson(socket, 404, QJsonObject{{"ok", false}, {"message", "Preview saved map tidak ditemukan"}});
+        pgmPath = mapDir.filePath(QStringLiteral("map_") + QString::number(slot) + QStringLiteral(".pgm"));
+      } else {
+        const QString prefix = QStringLiteral("/api/navigation/map-preview/build/");
+        if (!request.path.startsWith(prefix)) return sendJson(socket, 404, QJsonObject{{"ok", false}, {"message", "Preview map tidak ditemukan"}});
+        QString encoded = request.path.mid(prefix.size());
+        if (encoded.endsWith(QStringLiteral(".png"))) encoded.chop(4);
+        const QString name = safeNavigationMapName(QUrl::fromPercentEncoding(encoded.toUtf8()));
+        pgmPath = QDir(mapDir.filePath(QStringLiteral("build_map"))).filePath(name + QStringLiteral(".pgm"));
+      }
+      const QByteArray png = pgmPreviewPng(pgmPath);
+      if (png.isEmpty()) return sendJson(socket, 404, QJsonObject{{"ok", false}, {"message", "Preview map tidak tersedia"}});
+      return sendBytes(socket, 200, "image/png", png, {{"Cache-Control", "no-store, max-age=0"}});
     }
     if (request.method == "POST") return handlePost(socket, request);
     if (request.method == "GET") return serveStatic(socket, request.path);
@@ -2703,8 +2947,9 @@ class LocalHttpServer : public QObject {
               {"message", "YAML gagal disimpan; planner tidak direstart"}};
           }
         } else {
-          const bool navigationCoreNextStartOnly =
-            fileKey == QStringLiteral("navigation_core") && yamlPath.endsWith(QStringLiteral(".publish_rate_hz"));
+          // autonomy_health_manager implements a live parameter callback for publish_rate_hz;
+          // use the verified native service path instead of deferring it unnecessarily.
+          const bool navigationCoreNextStartOnly = false;
           if (navigationCoreNextStartOnly) {
             ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
             runtimeApply = QJsonObject{{"attempted", false}, {"applied", false}, {"verified", false},
@@ -2745,6 +2990,57 @@ class LocalHttpServer : public QObject {
             }
           }
         }
+      } else if (fileKey == QStringLiteral("vehicle")) {
+        // Geometry is a multi-owner contract. Persist transactionally, sync all
+        // derived runtime YAML, and apply on the next safe stack start.
+        const QJsonValue previousYaml = currentYamlValue(fileKey, yamlPath);
+        ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
+        auto runGeometrySync = []() -> QJsonObject {
+          QString workspace = QString::fromUtf8(qgetenv("AGV_ROOT")).trimmed();
+          if (workspace.isEmpty()) workspace = QString::fromUtf8(qgetenv("AGV_WS")).trimmed();
+          if (workspace.startsWith(QStringLiteral("~/"))) workspace = QDir::home().filePath(workspace.mid(2));
+          if (workspace.isEmpty()) workspace = QDir::home().filePath(QStringLiteral("forclift"));
+          const QString helper = QDir(workspace).filePath(QStringLiteral("src/navigation/tools/sync_vehicle_geometry.py"));
+          QProcess proc; proc.setProcessChannelMode(QProcess::SeparateChannels);
+          QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+          env.insert(QStringLiteral("AGV_ROOT"), workspace);
+          env.insert(QStringLiteral("AGV_RUNTIME_CONFIG_ROOT"), QDir(workspace).filePath(QStringLiteral("config/runtime")));
+          proc.setProcessEnvironment(env);
+          proc.start(QStringLiteral("/usr/bin/python3"), {helper,
+            QStringLiteral("--navigation-share"), QDir(workspace).filePath(QStringLiteral("src/navigation")),
+            QStringLiteral("--esc-share"), QDir(workspace).filePath(QStringLiteral("src/esc"))});
+          if (!proc.waitForStarted(1500) || !proc.waitForFinished(15000)) {
+            proc.kill(); proc.waitForFinished(500);
+            return QJsonObject{{"verified", false}, {"state", "SYNC_FAILED"},
+              {"message", "Geometry sync helper gagal start/timeout"}};
+          }
+          const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+          const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+          const bool verified = proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+          return QJsonObject{{"verified", verified}, {"state", verified ? "NEXT_START" : "SYNC_FAILED"},
+            {"strategy", "geometry_sync_next_start"}, {"output", out}, {"stderr", err},
+            {"message", verified ?
+              "Geometry canonical dan seluruh derived runtime YAML tersinkron; dipakai pada start stack berikutnya" :
+              QStringLiteral("Geometry sync gagal: ") + err}};
+        };
+        if (ok) {
+          runtimeApply = runGeometrySync();
+          if (!runtimeApply.value("verified").toBool(false)) {
+            QString rollbackMessage; QJsonValue rollbackSaved; QJsonObject rollbackApply;
+            const bool yamlRolledBack = !previousYaml.isUndefined() && !previousYaml.isNull() &&
+              setYamlValueAtomic(fileKey, yamlPath, previousYaml, &rollbackMessage, &rollbackSaved);
+            if (yamlRolledBack) {
+              saved = rollbackSaved;
+              rollbackApply = runGeometrySync();
+            }
+            runtimeApply["rollback"] = rollbackApply;
+            runtimeApply["state"] = yamlRolledBack && rollbackApply.value("verified").toBool(false) ?
+              "FAILED_ROLLED_BACK" : "ROLLBACK_FAILED";
+            runtimeApply["verified"] = false;
+            message = QStringLiteral("Geometry tidak diterapkan; perubahan YAML dibatalkan");
+            ok = false;
+          }
+        }
       } else if (fileKey == QStringLiteral("lidar")) {
         // LiDAR parameters are consumed by the custom driver at startup. Apply
         // transactionally: write YAML, respawn only lidar_node, require native
@@ -2775,9 +3071,32 @@ class LocalHttpServer : public QObject {
           }
         }
       } else {
-        // Preserve the existing behavior for perception, steering, sensor and SLAM.
+        // Generic owners use the same transaction rule as LiDAR: persist only
+        // when runtime apply is verified or explicitly deferred to a safe next start.
+        const QJsonValue previousYaml = currentYamlValue(fileKey, yamlPath);
         ok = setYamlValueAtomic(fileKey, yamlPath, requestedValue, &message, &saved);
-        if (ok) runtimeApply = applyRuntimeParameter(fileKey, yamlPath, saved, bridge_->rosNode());
+        if (ok) {
+          runtimeApply = applyRuntimeParameter(fileKey, yamlPath, saved, bridge_->rosNode());
+          const QString state = runtimeApply.value("state").toString();
+          const bool accepted = runtimeApply.value("verified").toBool(false) ||
+            state == QStringLiteral("NEXT_START") || state == QStringLiteral("NEXT_MAPPING");
+          if (!accepted && runtimeApply.value("attempted").toBool(false)) {
+            QString rollbackMessage; QJsonValue rollbackSaved; QJsonObject rollbackApply;
+            const bool canRollback = !previousYaml.isUndefined() && !previousYaml.isNull();
+            const bool yamlRolledBack = canRollback &&
+              setYamlValueAtomic(fileKey, yamlPath, previousYaml, &rollbackMessage, &rollbackSaved);
+            if (yamlRolledBack) {
+              saved = rollbackSaved;
+              rollbackApply = applyRuntimeParameter(fileKey, yamlPath, previousYaml, bridge_->rosNode());
+            }
+            runtimeApply["rollback"] = rollbackApply;
+            runtimeApply["applied"] = false; runtimeApply["verified"] = false;
+            runtimeApply["state"] = yamlRolledBack ? "FAILED_ROLLED_BACK" : "ROLLBACK_FAILED";
+            message = QStringLiteral("Runtime apply gagal; perubahan YAML dibatalkan");
+            if (!rollbackMessage.isEmpty()) message += QStringLiteral(" • ") + rollbackMessage;
+            ok = false;
+          }
+        }
       }
       const QString runtimeMessage = runtimeApply.value("message").toString();
       if (ok && !runtimeMessage.isEmpty()) message += QStringLiteral(" • ") + runtimeMessage;
@@ -2793,6 +3112,118 @@ class LocalHttpServer : public QObject {
       ok = stopRecording(&message, &result);
       result["ok"] = ok; result["message"] = message; result["at_ms"] = nowMs();
       return sendJson(socket, ok ? 200 : 409, result);
+    } else if (request.path == "/api/navigation/map-library") {
+      return sendJson(socket, 200, navigationMapLibrary());
+    } else if (request.path == "/api/navigation/map-use") {
+      const QString source = json.value("source").toString().trimmed().toLower();
+      if (source == QStringLiteral("default")) {
+        ok = bridge_->triggerService(QStringLiteral("/navigation/map/start_4"), QStringLiteral("nav_map_default"), &message);
+      } else if (source == QStringLiteral("saved")) {
+        const int slot = json.value("slot").toInt(0);
+        if (slot < 1 || slot > 3)
+          return sendJson(socket, 400, QJsonObject{{"ok", false}, {"message", "slot saved map harus 1..3"}});
+        ok = bridge_->triggerService(QStringLiteral("/navigation/map/start_%1").arg(slot),
+                                     QStringLiteral("nav_map_saved_%1").arg(slot), &message);
+      } else if (source == QStringLiteral("build")) {
+        QString prepMessage;
+        if (!prepareNavigationSelectedMap(json.value("name").toString(), &prepMessage))
+          return sendJson(socket, 400, QJsonObject{{"ok", false}, {"message", prepMessage}});
+        ok = bridge_->triggerService(QStringLiteral("/navigation/map/start_5"), QStringLiteral("nav_map_build"), &message);
+        message = prepMessage + QStringLiteral(" • ") + message;
+      } else {
+        return sendJson(socket, 400, QJsonObject{{"ok", false}, {"message", "source harus default, saved, atau build"}});
+      }
+    } else if (request.path == "/api/build-map/list") {
+      QString workspace = QString::fromUtf8(qgetenv("AGV_ROOT")).trimmed();
+      if (workspace.isEmpty()) workspace = QString::fromUtf8(qgetenv("AGV_WS")).trimmed();
+      if (workspace.startsWith(QStringLiteral("~/"))) workspace = QDir::home().filePath(workspace.mid(2));
+      if (workspace.isEmpty()) workspace = QDir::home().filePath(QStringLiteral("forclift"));
+      QDir mapDir(QDir(workspace).filePath(QStringLiteral("src/navigation/maps/build_map")));
+      if (!mapDir.exists()) QDir().mkpath(mapDir.absolutePath());
+      QJsonArray maps;
+      const QFileInfoList yamls = mapDir.entryInfoList({QStringLiteral("*.yaml")}, QDir::Files, QDir::Time);
+      for (const QFileInfo &yamlInfo : yamls) {
+        const QString name = yamlInfo.completeBaseName();
+        if (name == QStringLiteral("build_map_latest")) continue;
+        const QFileInfo pgmInfo(mapDir.filePath(name + QStringLiteral(".pgm")));
+        if (!pgmInfo.isFile()) continue;
+        maps.append(QJsonObject{{"name", name},
+                                {"pgm", pgmInfo.absoluteFilePath()},
+                                {"yaml", yamlInfo.absoluteFilePath()},
+                                {"modified_at_ms", static_cast<double>(qMax(pgmInfo.lastModified().toMSecsSinceEpoch(), yamlInfo.lastModified().toMSecsSinceEpoch()))},
+                                {"pgm_bytes", static_cast<double>(pgmInfo.size())}});
+      }
+      QString selected;
+      QFile current(mapDir.filePath(QStringLiteral("current_name.txt")));
+      if (current.open(QIODevice::ReadOnly | QIODevice::Text)) selected = QString::fromUtf8(current.readAll()).trimmed();
+      return sendJson(socket, 200, QJsonObject{{"ok", true}, {"maps", maps}, {"selected", selected}, {"count", maps.size()}, {"at_ms", nowMs()}});
+    } else if (request.path == "/api/build-map/start") {
+      // Independent operational Build Map. Never uses BAB 4.2 slots 1..3.
+      ok = bridge_->triggerService("/build_map/start", "build_map_start", &message);
+    } else if (request.path == "/api/build-map/stop") {
+      ok = bridge_->triggerServiceSync("/build_map/stop", "build_map_stop", &message);
+    } else if (request.path == "/api/build-map/save") {
+      QString mapName = json.value("name").toString().trimmed();
+      mapName.remove(QRegularExpression(QStringLiteral("\\.(pgm|yaml)$"), QRegularExpression::CaseInsensitiveOption));
+      mapName.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_"));
+      mapName.replace(QRegularExpression(QStringLiteral("_+")), QStringLiteral("_"));
+      while (mapName.startsWith('_')) mapName.remove(0, 1);
+      while (mapName.endsWith('_')) mapName.chop(1);
+      mapName = mapName.left(64);
+      if (mapName.isEmpty())
+        return sendJson(socket, 400, QJsonObject{{"ok", false}, {"message", "Nama map tidak valid"}});
+
+      QString workspace = QString::fromUtf8(qgetenv("AGV_ROOT")).trimmed();
+      if (workspace.isEmpty()) workspace = QString::fromUtf8(qgetenv("AGV_WS")).trimmed();
+      if (workspace.startsWith(QStringLiteral("~/"))) workspace = QDir::home().filePath(workspace.mid(2));
+      if (workspace.isEmpty()) workspace = QDir::home().filePath(QStringLiteral("forclift"));
+      QDir mapDir(QDir(workspace).filePath(QStringLiteral("src/navigation/maps/build_map")));
+      if (!mapDir.exists() && !QDir().mkpath(mapDir.absolutePath()))
+        return sendJson(socket, 500, QJsonObject{{"ok", false}, {"message", "Folder Build Map tidak dapat dibuat"}});
+
+      const QString canonicalPgm = mapDir.filePath(QStringLiteral("build_map_latest.pgm"));
+      const QString canonicalYaml = mapDir.filePath(QStringLiteral("build_map_latest.yaml"));
+      const QString targetPgm = mapDir.filePath(mapName + QStringLiteral(".pgm"));
+      const QString targetYaml = mapDir.filePath(mapName + QStringLiteral(".yaml"));
+      if (QFileInfo::exists(targetPgm) || QFileInfo::exists(targetYaml))
+        return sendJson(socket, 409, QJsonObject{{"ok", false}, {"message", QStringLiteral("Nama Build Map sudah digunakan: ") + mapName}});
+
+      QString saveMessage;
+      ok = bridge_->triggerServiceSync("/build_map/save_last", "build_map_save", &saveMessage);
+      if (!ok)
+        return sendJson(socket, 409, QJsonObject{{"ok", false}, {"message", saveMessage}, {"at_ms", nowMs()}});
+      if (!QFileInfo(canonicalPgm).isFile() || !QFileInfo(canonicalYaml).isFile())
+        return sendJson(socket, 500, QJsonObject{{"ok", false}, {"message", "Snapshot Build Map tidak ditemukan setelah SAVE"}});
+
+      if (!QFile::copy(canonicalPgm, targetPgm))
+        return sendJson(socket, 500, QJsonObject{{"ok", false}, {"message", "Gagal membuat PGM Build Map bernama"}});
+      QFile yamlIn(canonicalYaml);
+      if (!yamlIn.open(QIODevice::ReadOnly | QIODevice::Text)) { QFile::remove(targetPgm); return sendJson(socket, 500, QJsonObject{{"ok", false}, {"message", "Gagal membaca YAML Build Map"}}); }
+      QString yamlText = QString::fromUtf8(yamlIn.readAll()); yamlIn.close();
+      yamlText.replace(QRegularExpression(QStringLiteral("(?m)^image:\\s*.*$")), QStringLiteral("image: ") + mapName + QStringLiteral(".pgm"));
+      QSaveFile yamlOut(targetYaml);
+      if (!yamlOut.open(QIODevice::WriteOnly | QIODevice::Text) || yamlOut.write(yamlText.toUtf8()) < 0 || !yamlOut.commit()) {
+        QFile::remove(targetPgm);
+        return sendJson(socket, 500, QJsonObject{{"ok", false}, {"message", "Gagal membuat YAML Build Map bernama"}});
+      }
+      QSaveFile currentName(mapDir.filePath(QStringLiteral("current_name.txt")));
+      if (currentName.open(QIODevice::WriteOnly | QIODevice::Text)) { currentName.write((mapName + QStringLiteral("\n")).toUtf8()); currentName.commit(); }
+      message = saveMessage + QStringLiteral(" • tersimpan independen sebagai ") + mapName + QStringLiteral(".pgm + ") + mapName + QStringLiteral(".yaml");
+      return sendJson(socket, 200, QJsonObject{{"ok", true}, {"message", message}, {"name", mapName}, {"pgm", targetPgm}, {"yaml", targetYaml}, {"at_ms", nowMs()}});
+    } else if (request.path == "/api/build-map/delete") {
+      QString mapName = json.value("name").toString().trimmed();
+      mapName.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_"));
+      if (mapName.isEmpty() || mapName == QStringLiteral("build_map_latest"))
+        return sendJson(socket, 400, QJsonObject{{"ok", false}, {"message", "Nama Build Map tidak valid untuk DELETE"}});
+      QString workspace = QString::fromUtf8(qgetenv("AGV_ROOT")).trimmed();
+      if (workspace.isEmpty()) workspace = QString::fromUtf8(qgetenv("AGV_WS")).trimmed();
+      if (workspace.isEmpty()) workspace = QDir::home().filePath(QStringLiteral("forclift"));
+      QDir mapDir(QDir(workspace).filePath(QStringLiteral("src/navigation/maps/build_map")));
+      const bool a = QFile::remove(mapDir.filePath(mapName + QStringLiteral(".pgm")));
+      const bool b = QFile::remove(mapDir.filePath(mapName + QStringLiteral(".yaml")));
+      QFile current(mapDir.filePath(QStringLiteral("current_name.txt")));
+      if (current.open(QIODevice::ReadOnly | QIODevice::Text) && QString::fromUtf8(current.readAll()).trimmed() == mapName) { current.close(); QFile::remove(current.fileName()); }
+      return sendJson(socket, 200, QJsonObject{{"ok", true}, {"message", (a || b) ? QStringLiteral("Build Map dihapus: ") + mapName : QStringLiteral("Build Map tidak ditemukan: ") + mapName}, {"name", mapName}, {"at_ms", nowMs()}});
     } else if (request.path == "/api/mapping/start") {
       const int slot = json.value("slot").toInt(0);
       if (slot < 1 || slot > 3) {
@@ -2836,6 +3267,12 @@ class LocalHttpServer : public QObject {
       ok = bridge_->triggerService(QString("/navigation/map/start_%1").arg(slot), "nav_map_start", &message);
     } else if (request.path == "/api/navigation/map-stop") {
       ok = bridge_->triggerService("/navigation/map/stop", "nav_map_stop", &message);
+    } else if (request.path == "/api/mission/start") {
+      ok = bridge_->triggerServiceSync("/mission/start", "mission_start", &message);
+    } else if (request.path == "/api/mission/abort") {
+      ok = bridge_->triggerServiceSync("/mission/abort", "mission_abort", &message);
+    } else if (request.path == "/api/mission/reset") {
+      ok = bridge_->triggerServiceSync("/mission/reset", "mission_reset", &message);
     } else if (request.path == "/api/navigation/goal") {
       ok = bridge_->publishGoal(json.value("x").toDouble(std::numeric_limits<double>::quiet_NaN()),
                                 json.value("y").toDouble(std::numeric_limits<double>::quiet_NaN()),

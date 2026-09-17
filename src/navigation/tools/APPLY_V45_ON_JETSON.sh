@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WS="${AGV_WS:-/home/otomasi2/ros}"
+WS="${AGV_WS:-/home/otomasi2/forclift}"
 NAV="$WS/src/navigation"
 fail(){ echo "[V45] FAIL: $*" >&2; exit 2; }
 [[ -d "$NAV" ]] || fail "navigation source not found at $NAV"

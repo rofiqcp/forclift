@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WS="${AGV_WS:-/home/otomasi2/ros}"
+WS="${AGV_WS:-/home/otomasi2/forclift}"
 MODE="${1:-gui}"
 [[ -f /opt/ros/humble/setup.bash ]] || { echo '[V47-RUN] /opt/ros/humble/setup.bash missing' >&2; exit 2; }
 [[ -f "$WS/install/setup.bash" ]] || { echo "[V47-RUN] $WS/install/setup.bash missing; run APPLY_V47_ON_JETSON.sh first" >&2; exit 2; }

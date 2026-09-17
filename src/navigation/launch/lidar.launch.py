@@ -22,7 +22,7 @@ from navigation_runtime.lidar_safety_config import ensure_stage2_lidar_runtime
 
 def _runtime_config(package_share: str, package_name: str, filename: str) -> str:
     """Return persistent runtime YAML, seeding it once from package defaults."""
-    ws = os.environ.get("AGV_WS", "/home/otomasi2/ros")
+    ws = (os.environ.get("AGV_ROOT") or os.environ.get("AGV_WS") or os.path.expanduser("~/forclift"))
     base = os.environ.get("AGV_RUNTIME_CONFIG_ROOT", os.path.join(ws, "config", "runtime"))
     target_dir = os.path.join(os.path.expanduser(base), package_name)
     os.makedirs(target_dir, exist_ok=True)

@@ -1,7 +1,7 @@
 schema_version: 1
 software_contract: PART5_STAGE3
-generated_at_unix: 1789486794.7643924
-runtime_root: /home/otomasi2/ros/config/runtime
+generated_at_unix: 1789635200.5949833
+runtime_root: /home/otomasi2/forclift/config/runtime
 files:
   navigation:
     vehicle_geometry.yaml:
@@ -10,8 +10,8 @@ files:
       size_bytes: 2533
     lidar.yaml:
       revision: 1
-      sha256: 882fb89ea20207980381a38ba19f7aa1b96a1f8a2775725a2e43cfdad472eed7
-      size_bytes: 1029
+      sha256: b155563f3c2ba9130decc827e3218290c5fd7836834b297d5fde9feceff0b137
+      size_bytes: 1030
     lidar_safety.yaml:
       revision: 2
       sha256: 553ee8df8bd0a53f01a33aa4490fbe1dae3356ac6c341bb4eb1ae3a5309d2573
@@ -50,8 +50,8 @@ files:
       size_bytes: 1955
     nav2_ackermann.yaml:
       revision: 5
-      sha256: 417565eada698752ee1bfc5546c03372bc4a40faa923ef8815c23bd0e89b0984
-      size_bytes: 8935
+      sha256: d4ebbc1a3de3fc4ae448614521b77aaad7c6ff264f2309d3194640da26b8fa7a
+      size_bytes: 8939
     collision_monitor.yaml:
       revision: 3
       sha256: 2d547c1fa664f89a5282f9501e40165210efe689805abb8c80ec8b1b45fc74b2
@@ -64,7 +64,19 @@ files:
       revision: 1
       sha256: 0fb8b2f986e15dfe5f31ac2995c2876ef7163a346e94abc607f654b5be372513
       size_bytes: 370
+    mission_fsm.yaml:
+      revision: 1
+      sha256: eb3f3d1949ef66e62526474ec659c7cd9db713d14fe70fe9db59caf9a52bd386
+      size_bytes: 434
+    gui/interface.yaml:
+      revision: 1
+      sha256: dd67d329ff0f657217fbde624d96fe889ff226cd7b703f68b80190b9dc54fefe
+      size_bytes: 1396
   esc:
+    ackermann_dual_vesc.yaml:
+      revision: 1
+      sha256: c936e550d13d7e514d60573cd8c05f4d700d9fee7f87a3d386ecf77a58ac1f0b
+      size_bytes: 804
     ackermann_1_board.yaml:
       revision: 4
       sha256: e69db87f1930c501c33ffbcea4e9e4d9a8314b412b15bac0a5c1c5c30c9ad251
@@ -83,42 +95,42 @@ files:
       size_bytes: 1434
     winch.yaml:
       revision: 1
-      sha256: cba7c737e8682e889ec7b5f5b947b5a034f14e3c2995db32296c0c81754a00c6
+      sha256: 761f2839752e755bb7716a288f48974136b4c68190f0956343ac8b9931a3b72d
       size_bytes: 482
   yolo_obstacle_detection_ros2:
     camera_v4l2.yaml:
       revision: 2
-      sha256: d086b5c947f961287da040bf28ef890b8d1ecbbe7b7856a5eaf407787dad13d9
-      size_bytes: 311
+      sha256: 9123800c4d4e983c25d40b8cc60ba099ba5b498552f7d87173d2bd6428073308
+      size_bytes: 429
     yolo_detection.yaml:
       revision: 2
-      sha256: f0fddd9bf504d41c8613288ec021bea08e3f0ea952ba70edc80170ac6079d709
-      size_bytes: 589
+      sha256: 8820ffd402fa04748d140d271b677235e0561f99331d6b1f42e93315958dc312
+      size_bytes: 783
     alignment_realtime.yaml:
       revision: 2
-      sha256: 3ab85b6d0a401c3fdca66d228069793d2d60c3430723e9ff1bfd231f4be2d4cf
-      size_bytes: 1733
+      sha256: dc8fee2e2abd2ea7fab2f5e4b0b8f59eb17eb8109416658523e012ed76302ce4
+      size_bytes: 1947
 missing_files: []
 migrations:
   geometry:
-    path: /home/otomasi2/ros/config/runtime/navigation/vehicle_geometry.yaml
+    path: /home/otomasi2/forclift/config/runtime/navigation/vehicle_geometry.yaml
   lidar:
-    runtime_root: /home/otomasi2/ros/config/runtime
+    runtime_root: /home/otomasi2/forclift/config/runtime
     changed_files: []
     scan_safety: /scan_safety
     scan_navigation: /scan_nav
   localization:
-    runtime_root: /home/otomasi2/ros/config/runtime
+    runtime_root: /home/otomasi2/forclift/config/runtime
     changed_files: []
     ekf_sources:
     - /esc/odom
     - /imu/data
     lidar_odom_role: diagnostic_only
     initial_pose_mode: GLOBAL_LOCALIZATION
-    localization_startup: /home/otomasi2/ros/config/runtime/navigation/localization_startup.yaml
-  planning: /home/otomasi2/ros/config/runtime/navigation/nav2_ackermann.yaml
+    localization_startup: /home/otomasi2/forclift/config/runtime/navigation/localization_startup.yaml
+  planning: /home/otomasi2/forclift/config/runtime/navigation/nav2_ackermann.yaml
   geometry_sync:
-    geometry_path: /home/otomasi2/ros/config/runtime/navigation/vehicle_geometry.yaml
+    geometry_path: /home/otomasi2/forclift/config/runtime/navigation/vehicle_geometry.yaml
     geometry:
       cad_to_base_yaw_rad: -1.570796326795
       wheelbase_m: 0.7

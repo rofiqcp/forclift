@@ -323,14 +323,14 @@ def main():
 
         if require_perception:
             model_candidates = [
-                '/home/otomasi2/ros/models/yolov8n_agv_forklift_opencv.onnx',
-                '/home/otomasi2/ros/models/yolov8n_agv_forklift.onnx',
+                '/home/otomasi2/forclift/models/yolov8n_agv_forklift_opencv.onnx',
+                '/home/otomasi2/forclift/models/yolov8n_agv_forklift.onnx',
             ]
             model = next((path for path in model_candidates if os.path.isfile(path)), '')
             if model:
                 print(f'PASS  YOLO AGV model file = {model}')
             else:
-                print('WARN  YOLO AGV model file not found in /home/otomasi2/ros/models')
+                print('WARN  YOLO AGV model file not found in /home/otomasi2/forclift/models')
                 print('      Camera passthrough should still be visible; detections require the trained AGV model.')
         else:
             print('INFO  Perception checks disabled by AUTONOMOUS_CHECK_REQUIRE_PERCEPTION=0')

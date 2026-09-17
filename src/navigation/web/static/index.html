@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07100f">
   <link rel="icon" href="data:,">
   <title>AGV Forklift Operator Console</title>
-  <link rel="stylesheet" href="/styles.css?v=20260916-mapping-gui-v3">
+  <link rel="stylesheet" href="/styles.css?v=20260917-nav-library-v1">
 </head>
 <body>
   <div class="app-shell">
@@ -19,6 +19,7 @@
         <div class="nav-section-label">OPERASI</div>
         <button class="nav-item active" data-page="overview"><span>◫</span><b>Overview</b></button>
         <button class="nav-item thesis-nav" data-page="experiments"><span>▦</span><b>BAB IV • Tuning</b><em>100 tests</em></button>
+        <button class="nav-item" data-page="build-map"><span>▧</span><b>Build Map</b></button>
         <button class="nav-item" data-page="navigation"><span>⌖</span><b>Navigation Map</b></button>
         <button class="nav-item" data-page="perception"><span>◉</span><b>Perception Live</b></button>
         <button class="nav-item" data-page="esc"><span>⚙</span><b>ESC & Steering</b></button>
@@ -94,11 +95,40 @@
           </div>
         </section>
 
-        <!-- NAVIGATION -->
+
+        <!-- BUILD MAP -->
+      <section class="page" id="page-build-map">
+        <div class="map-layout">
+          <article class="panel map-panel">
+            <div class="panel-head map-head"><div><span class="eyebrow">SLAM MAPPING</span><h2>Build Map Workspace</h2></div><div class="toolbar"><span class="status-chip waiting" id="buildMapChip">IDLE</span></div></div>
+            <div class="map-stage" id="buildMapStage"><canvas id="buildMapCanvas" width="1200" height="720"></canvas><div class="map-legend"><span><i class="occupancy-key"></i> Occupancy grid</span><span><i class="robot-key"></i> Robot pose SLAM</span></div><div class="map-placeholder" id="buildMapPlaceholder">Tekan START untuk membuat map operasional.</div></div>
+          </article>
+          <div class="stack">
+            <article class="panel control-card">
+              <div class="panel-head"><div><span class="eyebrow">MAP CONTROL</span><h2>Start / Stop / Save</h2></div></div>
+              <div class="status-chip" style="margin-bottom:12px">INDEPENDENT • TIDAK MENGUBAH BAB 4.2</div>
+              <div class="button-row build-map-actions"><button class="primary-btn grow" id="buildMapStartBtn">START</button><button class="warning-btn grow" id="buildMapStopBtn">STOP</button></div>
+              <div class="button-row build-map-actions"><button class="soft-btn grow" id="buildMapSaveBtn">SAVE & RENAME</button><button class="danger-btn grow" id="buildMapDeleteBtn">DELETE</button></div>
+              <p class="hint" id="buildMapHint">Build Map memakai sesi operasional terpisah. map_1, map_2, map_3, CSV, tabel, dan hasil BAB 4.2 tidak disentuh.</p>
+            </article>
+            <article class="panel compact">
+              <div class="panel-head"><div><span class="eyebrow">LIVE STATUS</span><h2>Build Map Runtime</h2></div></div>
+              <div class="kv-list"><div><span>Engine</span><b id="buildMapEngine">--</b></div><div><span>LiDAR</span><b id="buildMapLidar">--</b></div><div><span>SLAM</span><b id="buildMapPhase">--</b></div><div><span>Grid</span><b id="buildMapGrid">--</b></div><div><span>Robot pose</span><b id="buildMapPose">--</b></div><div><span>Selected map</span><b id="buildMapCurrentName">--</b></div></div>
+            </article>
+            <article class="panel compact">
+              <div class="panel-head"><div><span class="eyebrow">SAVED MAPS</span><h2>Build Map Library</h2></div><span class="status-chip" id="buildMapSavedCount">0 MAP</span></div>
+              <div class="build-map-list" id="buildMapSavedList"><div class="empty-state">Belum ada Build Map tersimpan.</div></div>
+              <p class="hint">Jumlah map tidak dibatasi slot. Pilih map berdasarkan nama untuk DELETE atau penggunaan berikutnya.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- NAVIGATION -->
         <section class="page" id="page-navigation">
           <div class="map-layout">
             <article class="panel map-panel">
-              <div class="panel-head map-head"><div><span class="eyebrow">NAVIGATION MAP</span><h2>Navigation Workspace</h2></div><div class="toolbar nav-map-toolbar"><span class="status-chip active" id="navMapSourceChip">NAVIGATION MAP</span><button class="soft-btn" id="mapCenterBtn">Center Robot</button><button class="soft-btn" id="mapFitBtn">Fit Map</button></div></div>
+              <div class="panel-head map-head"><div><span class="eyebrow">NAVIGATION MAP</span><h2>Navigation Workspace</h2></div><div class="toolbar nav-map-toolbar"><label class="nav-map-picker"><span>Map yang ditampilkan</span><select id="navMapSelect"><option value="default">Navigation Map (Default)</option></select></label><span class="status-chip active" id="navMapSourceChip">NAVIGATION MAP</span><button class="soft-btn" id="mapZoomOutBtn" title="Zoom out">−</button><span class="status-chip" id="mapZoomLabel">100%</span><button class="soft-btn" id="mapZoomInBtn" title="Zoom in">+</button><button class="soft-btn" id="mapCenterBtn">Center Robot</button><button class="soft-btn" id="mapFitBtn">Fit Map</button></div></div>
               <div class="map-stage" id="mapStage"><canvas id="mapCanvas" width="1200" height="720"></canvas><div class="map-source-badge active" id="navMapSourceBadge">NAVIGATION MAP</div><div class="map-legend"><span><i class="occupancy-key"></i> Occupancy grid</span><span><i class="inflation-key"></i> Global inflation</span><span><i class="costmap-key"></i> Local costmap</span><span><i class="scan-key"></i> LaserScan</span><span><i class="mppi-candidate-key"></i> MPPI candidates</span><span><i class="mppi-optimal-key"></i> MPPI optimal</span><span><i class="robot-key"></i> Robot</span><span><i class="path-key"></i> Global path</span><span><i class="mppi-plan-key"></i> MPPI transformed plan</span><span><i class="goal-key"></i> Goal</span></div><div class="map-placeholder" id="mapPlaceholder">Menunggu /map...</div></div>
             </article>
             <div class="stack">
@@ -110,11 +140,35 @@
                 <div class="button-row"><button class="primary-btn" id="sendGoalBtn">Send Goal</button><button class="danger-btn" id="cancelGoalBtn">Cancel</button></div>
                 <p class="hint" id="goalMapHint">Klik Navigation Map untuk mengisi X/Y. Goal tetap melewati NavigationCore dan safety gate kendaraan.</p>
               </article>
+              <article class="panel compact waypoint-card">
+                <div class="panel-head"><div><span class="eyebrow">WAYPOINT</span><h2>Goal Pose A–D</h2></div><span class="status-chip" id="waypointSelectedLabel">A • HOME</span></div>
+                <div class="button-row"><button class="primary-btn grow" id="wpSelectA">A • HOME</button><button class="soft-btn grow" id="wpSelectB">B</button></div>
+                <div class="button-row"><button class="soft-btn grow" id="wpSelectC">C</button><button class="soft-btn grow" id="wpSelectD">D</button></div>
+                <div class="kv-list"><div><span>A • HOME</span><b id="wpValueA">BELUM DISET</b></div><div><span>B</span><b id="wpValueB">BELUM DISET</b></div><div><span>C</span><b id="wpValueC">BELUM DISET</b></div><div><span>D</span><b id="wpValueD">BELUM DISET</b></div></div>
+                <div class="button-row"><button class="soft-btn grow" id="waypointSetMapBtn">SET A ON MAP</button><button class="soft-btn grow" id="waypointSaveBtn">SAVE A</button></div>
+                <div class="button-row"><button class="soft-btn grow" id="saveHomeCurrentBtn">SAVE CURRENT AS A HOME</button></div>
+                <div class="button-row"><button class="primary-btn grow" id="goWaypointA">GO A</button><button class="primary-btn grow" id="goWaypointB">GO B</button></div>
+                <div class="button-row"><button class="primary-btn grow" id="goWaypointC">GO C</button><button class="primary-btn grow" id="goWaypointD">GO D</button></div>
+                <p class="hint" id="waypointHint">A adalah HOME. Pilih waypoint lalu SET ON MAP dan klik-drag untuk X/Y/yaw. GO hanya aktif untuk waypoint yang sudah disimpan.</p>
+              </article>
+              <article class="panel compact" id="missionFsmPanel">
+                <div class="panel-head"><div><span class="eyebrow">MISSION FSM</span><h2>A → B → Camera → Lift → C → A</h2></div><span class="status-chip waiting" id="missionFsmChip">IDLE</span></div>
+                <div class="kv-list">
+                  <div><span>State</span><b id="missionFsmState">IDLE</b></div>
+                  <div><span>Target</span><b id="missionFsmTarget">--</b></div>
+                  <div><span>Timer</span><b id="missionFsmTimer">--</b></div>
+                  <div><span>Camera / alignment</span><b id="missionFsmAlignment">WAIT</b></div>
+                  <div><span>Timed motion</span><b id="missionFsmLock">LOCKED</b></div>
+                </div>
+                <div class="button-row"><button class="primary-btn grow" id="missionStartBtn">START MISSION</button><button class="danger-btn grow" id="missionAbortBtn">ABORT</button></div>
+                <div class="button-row"><button class="soft-btn grow" id="missionResetBtn">RESET FSM</button></div>
+                <p class="hint" id="missionFsmDetail">A(HOME) → B → camera/alignment → maju 5 s → lift UP 5 s → C → lift DOWN 5 s → mundur 5 s → A.</p>
+              </article>
               <article class="panel compact nav-switch-card">
                 <div class="panel-head"><div><span class="eyebrow">MAP NAV2 CONTROL</span><h2>Navigation Map Control</h2></div><span class="status-chip waiting" id="navSwitchChip">NAV2 OFF</span></div>
                 <div class="kv-list"><div><span>Selected view</span><b id="navSelectedMap">LIVE</b></div><div><span>Active Nav2 map</span><b id="navActiveMap">--</b></div><div><span>State</span><b id="navSwitchState">--</b></div></div>
-                <div class="button-row nav-switch-actions"><button class="primary-btn grow" id="startNavMapBtn">START NAV2</button><button class="danger-btn grow" id="stopNavMapBtn">STOP NAV2</button></div>
-                <p class="hint" id="navSwitchMessage">LIVE memakai map_Navigation. MAP 1/2/3 tetap tersedia sebagai hasil build/pengujian.</p>
+                <div class="button-row nav-switch-actions"><button class="primary-btn grow" id="startNavMapBtn">USE THIS MAP</button><button class="danger-btn grow" id="stopNavMapBtn">STOP NAV2</button></div>
+                <p class="hint" id="navSwitchMessage">Saat halaman dibuka, Navigation Map (Default) selalu ditampilkan. Memilih map lain hanya preview sampai USE THIS MAP ditekan.</p>
               </article>
               <article class="panel compact"><div class="panel-head"><div><span class="eyebrow">POSE</span><h2>Current Estimate</h2></div></div><div class="kv-list"><div><span>X</span><b id="poseX">--</b></div><div><span>Y</span><b id="poseY">--</b></div><div><span>Yaw</span><b id="poseYaw">--</b></div><div><span>Velocity</span><b id="poseV">--</b></div><div><span>Path length</span><b id="pathLength">--</b></div></div></article>
               <article class="panel compact"><div class="panel-head"><div><span class="eyebrow">INITIAL POSE</span><h2>Localization Tool</h2></div></div><div class="button-row"><button class="primary-btn grow" id="poseEstimateBtn">2D Pose Estimate</button></div><div class="button-row"><button class="soft-btn grow" id="usePoseForInitial">Use Current</button><button class="soft-btn grow" id="resetLocalizationBtn">Reset Samples</button></div><p class="hint" id="initialPoseHint">Klik 2D Pose Estimate, lalu klik-drag pada peta untuk menentukan posisi dan arah awal AMCL.</p></article>
@@ -217,7 +271,132 @@
             <article class="panel"><div class="panel-head"><div><span class="eyebrow">STEERING</span><h2>Physical Calibration Gate</h2></div><span class="status-chip waiting" id="calSteerChip">WAIT</span></div><div class="kv-list"><div><span>Controller</span><b id="calSteerController">--</b></div><div><span>Target</span><b id="calSteerTarget">--</b></div><div><span>Actual</span><b id="calSteerActual">--</b></div><div><span>Protocol feedback</span><b id="calSteerProtocol">--</b></div></div><div class="button-row"><button class="warning-btn grow" id="calModeOn2">Enable Safe Cal Mode</button><button class="soft-btn grow" id="calModeOff2">Disable</button></div></article>
           </div>
           <div class="two-col">
-            <article class="panel"><div class="panel-head"><div><span class="eyebrow">CAMERA METRIC</span><h2>Astra / Perception Calibration</h2></div><span class="status-chip waiting" id="calCameraChip">WAIT</span></div><div class="kv-list"><div><span>USB camera</span><b id="calCameraUsb">--</b></div><div><span>Frame health</span><b id="calCameraHealth">--</b></div><div><span>Metric validated</span><b id="calCameraMetric">--</b></div><div><span>Inference freshness</span><b id="calPerceptionFresh">--</b></div></div><p class="hint">Titik/homography kamera tetap mengikuti source calibration GUI lama. Web menampilkan gate aktual dan tidak menandai PASS secara sintetis.</p></article>
+            <article class="panel camera-calibration-card" id="calCameraCard">
+              <div class="camera-cal-summary" id="calCameraSummary" role="button" tabindex="0" aria-expanded="false" aria-controls="calCameraDetails">
+                <div class="panel-head"><div><span class="eyebrow">CAMERA METRIC</span><h2>Astra / Perception Calibration</h2></div><div class="camera-cal-summary-status"><span class="status-chip waiting" id="calCameraChip">WAIT</span><span class="camera-cal-chevron" id="calCameraChevron">›</span></div></div>
+                <div class="kv-list">
+                  <div><span>USB camera</span><b id="calCameraUsb">--</b></div>
+                  <div><span>Frame health</span><b id="calCameraHealth">--</b></div>
+                  <div><span>Metric validated</span><b id="calCameraMetric">--</b></div>
+                  <div><span>Inference freshness</span><b id="calPerceptionFresh">--</b></div>
+                </div>
+                <p class="hint camera-cal-open-hint">Klik panel untuk membuka indikator kalibrasi lateral, yaw, tabel pixel/cm, dan display pengukuran pixel.</p>
+              </div>
+
+              <div class="camera-cal-details" id="calCameraDetails" hidden>
+                <div class="camera-cal-detail-head"><div><span class="eyebrow">CAMERA CALIBRATION WORKSPACE</span><h3>Live Metric & Pixel Measurement</h3></div><button class="soft-btn" id="calCameraCloseBtn" type="button">TUTUP DETAIL</button></div>
+                <p class="info-box">Panel detail hanya membaca data aktual dari pipeline perception. Nilai lateral memakai konversi pixel → meter, sedangkan yaw memakai geometri pasangan hole pallet. Gate tetap fail-closed sampai kalibrasi metrik dinyatakan valid.</p>
+                <div class="camera-cal-grid">
+                  <section class="camera-cal-group"><h3>Camera & Runtime</h3><div class="kv-list">
+                    <div><span>USB camera</span><b id="calDetailCameraUsb">--</b></div>
+                    <div><span>Frame health</span><b id="calDetailCameraHealth">--</b></div>
+                    <div><span>Resolution</span><b id="calCameraResolution">--</b></div>
+                    <div><span>Camera / inference FPS</span><b id="calCameraFps">--</b></div>
+                    <div><span>Inference freshness</span><b id="calDetailPerceptionFresh">--</b></div>
+                    <div><span>Alignment freshness</span><b id="calAlignmentFresh">--</b></div>
+                    <div><span>Sync age</span><b id="calCameraSyncAge">--</b></div>
+                  </div></section>
+                  <section class="camera-cal-group"><h3>Reference Geometry</h3><div class="kv-list">
+                    <div><span>Setpoint center</span><b id="calSetpointCenter">--</b></div>
+                    <div><span>Setpoint ROI</span><b id="calSetpointBox">--</b></div>
+                    <div><span>Hole midpoint</span><b id="calHoleMidpoint">--</b></div>
+                    <div><span>Hole separation</span><b id="calHoleSeparation">--</b></div>
+                    <div><span>Expected block center</span><b id="calExpectedBlock">--</b></div>
+                    <div><span>Detected block center</span><b id="calDetectedBlock">--</b></div>
+                    <div><span>Block residual</span><b id="calBlockResidual">--</b></div>
+                  </div></section>
+                  <section class="camera-cal-group lateral"><h3>Lateral Calibration</h3><div class="kv-list">
+                    <div><span>Lateral error pixel</span><b id="calLateralPx">--</b></div>
+                    <div><span>Meter per pixel</span><b id="calMeterPerPixel">--</b></div>
+                    <div><span>Scale</span><b id="calCmPerPixel">--</b></div>
+                    <div><span>Lateral error metric</span><b id="calLateralCm">--</b></div>
+                    <div><span>Lateral tolerance pixel</span><b id="calLateralTolPx">--</b></div>
+                    <div><span>Lateral tolerance metric</span><b id="calLateralTolCm">--</b></div>
+                    <div><span>Calibration Y zone</span><b id="calMetricYZone">--</b></div>
+                    <div><span>Metric validated</span><b id="calDetailCameraMetric">--</b></div>
+                  </div></section>
+                  <section class="camera-cal-group yaw"><h3>Yaw Calibration</h3><div class="kv-list">
+                    <div><span>Yaw source</span><b id="calYawSource">--</b></div>
+                    <div><span>Yaw error</span><b id="calYawError">--</b></div>
+                    <div><span>Yaw zero offset</span><b id="calYawOffset">--</b></div>
+                    <div><span>Yaw tolerance</span><b id="calYawTolerance">--</b></div>
+                    <div><span>Depth ratio</span><b id="calYawDepthRatio">--</b></div>
+                    <div><span>Geometry quality</span><b id="calYawGeometryQuality">--</b></div>
+                    <div><span>Focal X</span><b id="calFocalX">--</b></div>
+                    <div><span>Principal X</span><b id="calPrincipalX">--</b></div>
+                  </div></section>
+                  <section class="camera-cal-group gate"><h3>Alignment Gate</h3><div class="kv-list">
+                    <div><span>Hole pair</span><b id="calHolePair">--</b></div>
+                    <div><span>Block geometry</span><b id="calBlockGeometry">--</b></div>
+                    <div><span>Stable frames</span><b id="calStableFrames">--</b></div>
+                    <div><span>Aligned</span><b id="calCameraAligned">--</b></div>
+                    <div><span>Controller gate</span><b id="calControllerReason">--</b></div>
+                  </div></section>
+                </div>
+
+                <section class="camera-pixel-calibrator">
+                  <div class="pixel-cal-head">
+                    <div><span class="eyebrow">PIXEL MEASUREMENT DISPLAY</span><h3>Ukur Jarak Pixel dari Kamera</h3></div>
+                    <span class="status-chip waiting" id="calPixelMeasureChip">WAIT CAMERA</span>
+                  </div>
+                  <div class="pixel-measure-layout">
+                    <div class="pixel-measure-stage" id="calPixelMeasureStage">
+                      <img id="calPixelCameraImage" alt="Live camera calibration frame">
+                      <canvas id="calPixelMeasureCanvas" tabindex="0" aria-label="Display pengukuran pixel kamera"></canvas>
+                      <div class="pixel-measure-placeholder" id="calPixelCameraPlaceholder">Menunggu frame kamera...</div>
+                    </div>
+                    <div class="pixel-measure-side">
+                      <div class="pixel-measure-values">
+                        <div><span>Cursor</span><b id="calPixelCursor">--</b></div>
+                        <div><span>Titik A</span><b id="calPixelPointA">--</b></div>
+                        <div><span>Titik B</span><b id="calPixelPointB">--</b></div>
+                        <div><span>ΔX lateral</span><b id="calPixelDx">--</b></div>
+                        <div><span>ΔY</span><b id="calPixelDy">--</b></div>
+                        <div><span>Jarak A–B</span><b id="calPixelDistance">--</b></div>
+                      </div>
+                      <label class="pixel-measure-cm-label">Jarak fisik A–B / lateral (cm)<input id="calPixelMeasureCm" type="number" min="0" step="0.1" placeholder="contoh: 5.0"></label>
+                      <div class="pixel-measure-actions">
+                        <button class="primary-btn" id="calPixelMeasureUseBtn" type="button">HITUNG ΔX → PX/CM</button>
+                        <button class="soft-btn" id="calPixelMeasureResetBtn" type="button">RESET TITIK</button>
+                      </div>
+                      <p class="hint">Klik display sekali untuk Titik A dan sekali lagi untuk Titik B. Koordinat tetap dalam pixel frame asli. Untuk kalibrasi lateral gunakan <b>|ΔX|</b>; jarak diagonal A–B tetap ditampilkan sebagai referensi.</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="camera-pixel-calibrator">
+                  <div class="pixel-cal-head">
+                    <div><span class="eyebrow">LATERAL SCALE TABLE</span><h3>Kalibrasi Pixel ↔ cm</h3></div>
+                    <span class="status-chip waiting" id="calPixelTableChip">WAIT DATA</span>
+                  </div>
+                  <div class="pixel-live-strip">
+                    <div><span>Setpoint X</span><b id="calPixelLiveSetpoint">--</b></div>
+                    <div><span>Detected X</span><b id="calPixelLiveDetected">--</b></div>
+                    <div><span>Error lateral</span><b id="calPixelLiveError">--</b></div>
+                    <div><span>|Error|</span><b id="calPixelLiveAbs">--</b></div>
+                  </div>
+                  <div class="pixel-cal-controls">
+                    <label>Offset aktual dari setpoint (cm)<input id="calPixelReferenceCm" type="number" step="0.1" placeholder="contoh: 5.0"></label>
+                    <button class="soft-btn" id="calPixelCaptureBtn">+ AMBIL SAMPEL</button>
+                    <button class="soft-btn" id="calPixelUseAverageBtn">PAKAI RATA-RATA</button>
+                    <button class="danger-btn" id="calPixelResetBtn">RESET TABEL</button>
+                  </div>
+                  <div class="pixel-scale-summary">
+                    <div><span>Rata-rata pixel/cm</span><b id="calPixelAverage">--</b></div>
+                    <div><span>cm/pixel</span><b id="calPixelCmPerPx">--</b></div>
+                    <div><span>m/pixel</span><b id="calPixelMPerPx">--</b></div>
+                    <div><span>Config pixel/cm</span><b id="calPixelConfigured">--</b></div>
+                  </div>
+                  <div class="pixel-apply-row">
+                    <label>Pixel per cm yang digunakan<input id="calPixelPerCmInput" type="number" min="0.000001" step="0.01" placeholder="px/cm"></label>
+                    <button class="primary-btn" id="calPixelApplyBtn">APPLY PIXEL/CM</button>
+                  </div>
+                  <div class="pixel-table-wrap"><table class="pixel-cal-table"><thead><tr><th>No.</th><th>Offset Aktual (cm)</th><th>Setpoint X (px)</th><th>Detected X (px)</th><th>Error (px)</th><th>|px|/cm</th><th>cm/px</th></tr></thead><tbody id="calPixelTableBody"><tr><td colspan="7">Belum ada sampel.</td></tr></tbody></table></div>
+                  <p class="hint">Cara pakai: posisikan pallet pada offset lateral yang diketahui, masukkan jarak aktual dalam cm, lalu tekan AMBIL SAMPEL. Atau ukur dua titik langsung pada display di atas dan gunakan HITUNG ΔX → PX/CM. Tombol APPLY hanya mengubah skala <code>meter_per_pixel_at_working_distance</code>; status validasi metrik tetap tidak diaktifkan otomatis.</p>
+                </section>
+                <p class="hint camera-cal-hint">Urutan kalibrasi: pastikan hole–block–hole stabil → kalibrasi skala lateral (m/px) dari perpindahan fisik terukur → set yaw offset saat pallet benar-benar 0° → tentukan toleransi → validasi stable frame. Nilai PASS tidak dibuat sintetis.</p>
+              </div>
+            </article>
             <article class="panel"><div class="panel-head"><div><span class="eyebrow">IMU</span><h2>Orientation Calibration</h2></div><span class="status-chip waiting" id="calImuChip">WAIT</span></div><div class="kv-list"><div><span>Serial IMU</span><b id="calImuUsb">--</b></div><div><span>Stationary validated</span><b id="calImuStationary">--</b></div><div><span>Yaw</span><b id="calImuYaw">--</b></div><div><span>Gyro Z</span><b id="calImuGz">--</b></div></div></article>
           </div>
         </section>
@@ -355,6 +534,7 @@
   </div>
   <div class="toast-stack" id="toastStack" aria-live="polite"></div>
   <div class="modal-backdrop" id="confirmModal"><div class="modal"><span class="eyebrow">CONFIRM ACTION</span><h2 id="confirmTitle">Confirm</h2><p id="confirmText"></p><div class="button-row"><button class="soft-btn grow" id="confirmNo">Cancel</button><button class="danger-btn grow" id="confirmYes">Continue</button></div></div></div>
-  <script src="/app.js?v=20260916-mapping-gui-v3" defer></script>
+  <div class="modal-backdrop" id="buildMapSaveModal"><div class="modal"><span class="eyebrow">SAVE CURRENT MAP</span><h2>Nama map</h2><p>Map operasional terakhir disimpan ke folder Build Map terpisah sebagai pasangan PGM + YAML. Data BAB 4.2 tidak diubah.</p><label class="modal-field">Map name<input id="buildMapNameInput" autocomplete="off" maxlength="64" placeholder="map_laboratorium"></label><div class="button-row"><button class="soft-btn grow" id="buildMapSaveCancel">Cancel</button><button class="primary-btn grow" id="buildMapSaveConfirm">Save Map</button></div></div></div>
+  <script src="/app.js?v=20260917-semhas4-tuning-v5" defer></script>
 </body>
 </html>

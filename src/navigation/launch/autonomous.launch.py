@@ -13,7 +13,7 @@ owner of odom -> base_footprint.
 Startup goals for the real AGV:
   * Canonical /map + map TF activate PlannerServer/global inflation without
     waiting for the stricter motion-confidence threshold.
-  * map:=auto loads the exact map committed by the latest successful map.launch.py STOP+SAVE via /home/otomasi2/ros/maps/latest_map.txt; timestamp search is fallback only.
+  * map:=auto loads the exact map committed by the latest successful map.launch.py STOP+SAVE via /home/otomasi2/forclift/maps/latest_map.txt; timestamp search is fallback only.
   * One USB-role resolver owns IMU, LiDAR and Astra RGB discovery.
   * Camera starts independently and publishes RAW RGB internally.
   * Wheel/ESC odometry + IMU are the ONLY production EKF inputs; LiDAR odometry is diagnostic-only.
@@ -70,13 +70,13 @@ from navigation_runtime.planning_safety_config import ensure_stage5_planning_run
 from navigation_runtime.runtime_schema import ensure_runtime_schema
 
 
-WORKSPACE = "/home/otomasi2/ros"
-PERSISTENT_MAP_DIR = "/home/otomasi2/ros/maps"
-LEGACY_MAP_DIR = "/home/otomasi2/ros/src/navigation/maps"
+WORKSPACE = os.environ.get("AGV_WS") or os.environ.get("AGV_ROOT") or "/home/otomasi2/forclift"
+PERSISTENT_MAP_DIR = os.path.join(WORKSPACE, "maps")
+LEGACY_MAP_DIR = os.path.join(WORKSPACE, "src/navigation/maps")
 DEFAULT_MAP_DIR = PERSISTENT_MAP_DIR
 LATEST_MAP_POINTER = os.path.join(PERSISTENT_MAP_DIR, "latest_map.txt")
 DEFAULT_MAP_YAML = "auto"
-DEFAULT_YOLO_MODELS_DIR = "/home/otomasi2/ros/models"
+DEFAULT_YOLO_MODELS_DIR = "/home/otomasi2/forclift/models"
 DEFAULT_YOLO_MODEL = "auto"
 OLD_PLACEHOLDER = "/path/to/map.yaml"
 SERIAL_ROLE_STAGE = "serial-role-resolver"
@@ -570,7 +570,7 @@ def _resolve_map_yaml(context):
 
 
 def _resolve_yolo_model(context):
-    """Resolve the 5-class AGV YOLO model from /home/otomasi2/ros/models.
+    """Resolve the 5-class AGV YOLO model from /home/otomasi2/forclift/models.
 
     The generic yolov8n.onnx is intentionally NOT selected automatically because
     it is an 80-class COCO network, while this detector expects the trained
@@ -600,8 +600,8 @@ def _resolve_yolo_model(context):
         except Exception:
             pass
         candidates.extend([
-            "/home/otomasi2/ros/src/yolo_obstacle_detection_ros2/models/yolov8n_agv_forklift_opencv.onnx",
-            "/home/otomasi2/ros/src/yolo_obstacle_detection_ros2/models/yolov8n_agv_forklift.onnx",
+            "/home/otomasi2/forclift/src/yolo_obstacle_detection_ros2/models/yolov8n_agv_forklift_opencv.onnx",
+            "/home/otomasi2/forclift/src/yolo_obstacle_detection_ros2/models/yolov8n_agv_forklift.onnx",
         ])
 
     # When TensorRT is requested, prefer an ONNX file that already has a
@@ -770,7 +770,7 @@ def _verify_camera_gpu_runtime(context):
 
 def _runtime_config(package_share: str, package_name: str, filename: str) -> str:
     """Return persistent runtime YAML, seeding it once from package defaults."""
-    ws = os.environ.get("AGV_WS", "/home/otomasi2/ros")
+    ws = (os.environ.get("AGV_ROOT") or os.environ.get("AGV_WS") or os.path.expanduser("~/forclift"))
     base = os.environ.get("AGV_RUNTIME_CONFIG_ROOT", os.path.join(ws, "config", "runtime"))
     target_dir = os.path.join(os.path.expanduser(base), package_name)
     os.makedirs(target_dir, exist_ok=True)
@@ -834,7 +834,7 @@ def generate_launch_description():
     #
     # Resolution order:
     #   1) package://navigation/... in the installed package share
-    #   2) the workspace source tree (/home/otomasi2/ros/src/navigation)
+    #   2) the workspace source tree (/home/otomasi2/forclift/src/navigation)
     #   3) a primitive URDF fallback that preserves the exact link/joint tree
     #
     # Step 2 is important with --symlink-install / partial installs: map.launch
@@ -847,7 +847,7 @@ def generate_launch_description():
     workspace_root = os.path.abspath(os.path.join(nav_share, "../../../.."))
     source_nav_candidates = [
         os.path.join(workspace_root, "src", "navigation"),
-        "/home/otomasi2/ros/src/navigation",
+        "/home/otomasi2/forclift/src/navigation",
     ]
     source_nav = next(
         (p for p in source_nav_candidates if os.path.isdir(os.path.join(p, "meshes"))),
@@ -956,6 +956,9 @@ def generate_launch_description():
     manual_motion_health_params = _runtime_config(nav_share, "navigation", "manual_motion_health.yaml")
     localization_startup_params = _runtime_config(nav_share, "navigation", "localization_startup.yaml")
     localization_timing_params = _runtime_config(nav_share, "navigation", "localization_timing.yaml")
+    # Mission FSM and A/B/C/D waypoints share the same persistent runtime authority as rosweb.
+    mission_fsm_params = _runtime_config(nav_share, "navigation", "mission_fsm.yaml")
+    mission_waypoints_yaml = _runtime_config(nav_share, "navigation", "gui/interface.yaml")
     bt_xml = os.path.join(nav_share, "behavior_trees", "ackermann_navigate_to_pose.xml")
     default_yolo_model = DEFAULT_YOLO_MODEL
 
@@ -1004,7 +1007,7 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_intensity", default_value="true"),
         DeclareLaunchArgument("lidar_intensity_bits", default_value="16"),
         DeclareLaunchArgument("lidar_strict_checksum", default_value="true"),
-        DeclareLaunchArgument("esc_port", default_value="/dev/esc"),
+        DeclareLaunchArgument("esc_port", default_value="/dev/vesc_drive"),
         DeclareLaunchArgument("enable_winch", default_value="true"),
         DeclareLaunchArgument("winch_port", default_value="auto"),
         DeclareLaunchArgument("enable_camera", default_value="true"),
@@ -1331,7 +1334,7 @@ def generate_launch_description():
     esc = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(esc_share, "launch", "esc.launch.py")),
         launch_arguments={
-            "profile": "ackermann_1_board.yaml",
+            "profile": "ackermann_dual_vesc.yaml",
             "board0_port": LaunchConfiguration("esc_port"),
             "enable_winch": LaunchConfiguration("enable_winch"),
             "winch_port": LaunchConfiguration("winch_port"),
@@ -1851,12 +1854,34 @@ def generate_launch_description():
             ("goal_pose", "/goal_pose_nav2_internal"),
         ]
     )
+    mission_cmd_selector = Node(
+        package="navigation", executable="mission_cmd_selector.py",
+        name="mission_cmd_selector", output="screen", emulate_tty=True,
+        respawn=True, respawn_delay=1.0,
+        condition=IfCondition(LaunchConfiguration("enable_nav2")),
+        parameters=[{
+            "nav_topic": "/cmd_vel_nav_raw",
+            "mission_topic": "/mission/cmd_vel_raw",
+            "override_topic": "/mission/velocity_override",
+            "output_topic": "/cmd_vel_autonomy_raw",
+        }],
+    )
+    mission_fsm = Node(
+        package="navigation", executable="mission_fsm_controller.py",
+        name="mission_fsm", output="screen", emulate_tty=True,
+        respawn=True, respawn_delay=1.0,
+        condition=IfCondition(LaunchConfiguration("enable_nav2")),
+        parameters=[mission_fsm_params, {
+            "waypoints_yaml": mission_waypoints_yaml,
+            "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
+        }],
+    )
     smoother = Node(
         package="nav2_velocity_smoother", executable="velocity_smoother",
         name="velocity_smoother", output="screen", parameters=[nav2_params],
         condition=IfCondition(LaunchConfiguration("enable_nav2")),
         remappings=[
-            ("cmd_vel", "/cmd_vel_nav_raw"),
+            ("cmd_vel", "/cmd_vel_autonomy_raw"),
             ("cmd_vel_smoothed", "/cmd_vel_nav_smoothed"),
         ]
     )
@@ -2277,8 +2302,8 @@ def generate_launch_description():
         respawn_delay=2.0,
         condition=IfCondition(LaunchConfiguration("enable_warehouse_person")),
         parameters=[{
-            "model_path": "/home/otomasi2/ros/models/yolov8n.onnx",
-            "engine_path": "/home/otomasi2/ros/models/yolov8n_fp16_640.engine",
+            "model_path": "/home/otomasi2/forclift/models/yolov8n.onnx",
+            "engine_path": "/home/otomasi2/forclift/models/yolov8n_fp16_640.engine",
             "use_tensorrt": True,
             "use_cuda": True,
             "require_cuda": True,
@@ -2297,7 +2322,7 @@ def generate_launch_description():
     )
 
     _runtime_root = os.environ.get(
-        "AGV_RUNTIME_CONFIG_ROOT", os.path.join(os.environ.get("AGV_WS", "/home/otomasi2/ros"), "config", "runtime"))
+        "AGV_RUNTIME_CONFIG_ROOT", os.path.join((os.environ.get("AGV_ROOT") or os.environ.get("AGV_WS") or os.path.expanduser("~/forclift")), "config", "runtime"))
     hole_alignment_cfg = os.path.join(
         _runtime_root, "yolo_obstacle_detection_ros2", "alignment_realtime.yaml")
     if not os.path.isfile(hole_alignment_cfg):
@@ -2405,6 +2430,8 @@ def generate_launch_description():
                 controller,
                 behavior,
                 navigator,
+                mission_cmd_selector,
+                mission_fsm,
                 smoother,
                 collision,
                 # AMCL and the local controller may activate independently.

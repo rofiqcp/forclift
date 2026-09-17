@@ -2,7 +2,7 @@
 
 `autonomous.launch.py` uses this runtime directory on the AGV:
 
-`/home/otomasi2/ros/src/navigation/maps`
+`/home/otomasi2/forclift/src/navigation/maps`
 
 - `map:=auto` selects the newest `*.yaml` file.
 - The historical placeholder `map:=/path/to/map.yaml` is treated as `auto`.

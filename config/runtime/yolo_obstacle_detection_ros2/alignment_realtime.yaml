@@ -5,16 +5,17 @@ video:
   display: false
   save_output_video: false
   save_csv: true
-  output_dir: /home/otomasi2/ros/log/a2_alignment_validation
+  output_dir: /home/otomasi2/forclift/log/a2_alignment_validation
   video_extension: .mp4
 setpoint:
   x_min_px: 525
   x_max_px: 755
   y_min_px: 560
   y_max_px: 720
-  x_px: 640
-  y_px: 640
-  focal_length_x_px: 1280.0
+  x_px: 684.25
+  y_px: 715.05
+  focal_length_x_px: 960.0
+  principal_x_px: 640.0
 hole_detection:
   class_name: hole pallet
   minimum_confidence: 0.55
@@ -35,7 +36,12 @@ block_detection:
   minimum_aspect_ratio: 0.3
   maximum_aspect_ratio: 3.0
 yaw:
-  setpoint_yaw_offset_deg: 0.0
+  method: hole_pair_perspective
+  setpoint_yaw_offset_deg: 5.0
+  geometry_sign: -1.0
+  minimum_hole_box_px: 8.0
+  depth_ratio_min: 0.6
+  depth_ratio_max: 1.67
   maximum_yaw_jump_deg: 8.0
 filter:
   hole_position_smoothing_alpha: 0.25
@@ -51,11 +57,12 @@ alignment:
   yaw_tolerance_deg: 1.0
   stable_frame_requirement: 10
 calibration:
-  meter_per_pixel_at_working_distance: 0.001
+  meter_per_pixel_at_working_distance: 0.0021645021645022
+  metric_calibration_valid: false
   calibration_y_min_px: null
   calibration_y_max_px: null
 model:
-  weights_path: /home/otomasi2/ros/models/yolov8n_agv_forklift.pt
+  weights_path: /home/otomasi2/forclift/models/yolov8n_agv_forklift.pt
   device: cpu
 control:
   kp_lateral: 1.0

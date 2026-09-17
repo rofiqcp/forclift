@@ -21,7 +21,7 @@ def _runtime_dir():
     target=os.path.join(os.path.expanduser(root),"esc")
     os.makedirs(target,exist_ok=True)
     source=os.path.join(get_package_share_directory("esc"),"config")
-    for name in ("ackermann_1_board.yaml","ackermann_2_board.yaml","differential_1_board.yaml","esc_mux.yaml","keyboard_teleop.yaml","winch.yaml"):
+    for name in ("ackermann_dual_vesc.yaml","ackermann_1_board.yaml","ackermann_2_board.yaml","differential_1_board.yaml","esc_mux.yaml","keyboard_teleop.yaml","winch.yaml"):
         src=os.path.join(source,name); dst=os.path.join(target,name)
         if not os.path.exists(dst) and os.path.isfile(src): shutil.copy2(src,dst)
     return target
@@ -107,9 +107,9 @@ def generate_launch_description():
     winch_params = os.path.join(runtime_dir, "winch.yaml")
 
     args = [
-        DeclareLaunchArgument("profile", default_value="ackermann_1_board.yaml"),
-        DeclareLaunchArgument("board0_port", default_value="/dev/esc"),
-        DeclareLaunchArgument("board1_port", default_value=""),
+        DeclareLaunchArgument("profile", default_value="ackermann_dual_vesc.yaml"),
+        DeclareLaunchArgument("board0_port", default_value="/dev/vesc_drive"),
+        DeclareLaunchArgument("board1_port", default_value="/dev/vesc_steer"),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("start_driver", default_value="true"),
         DeclareLaunchArgument("start_mux", default_value="true"),

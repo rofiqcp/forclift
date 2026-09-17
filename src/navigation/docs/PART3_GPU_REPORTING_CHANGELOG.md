@@ -28,7 +28,7 @@ yolo_obstacle_detection_ros2/tools/build_yolo_tensorrt_engine.sh
 Build the `.engine` on the target Jetson, not on another GPU machine:
 
 ```bash
-export AGV_WS=/home/otomasi2/ros
+export AGV_WS=/home/otomasi2/forclift
 bash "$AGV_WS/src/yolo_obstacle_detection_ros2/tools/build_yolo_tensorrt_engine.sh" \
   "$AGV_WS/models/yolov8n_agv_forklift.onnx" \
   "$AGV_WS/models/yolov8n_agv_forklift.engine"
@@ -115,7 +115,7 @@ python3 src/navigation/tools/verify_part3_gpu_reporting.py
 Then build on the Jetson:
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 colcon build --symlink-install --packages-select navigation esc yolo_obstacle_detection_ros2
 source install/setup.bash
 ```

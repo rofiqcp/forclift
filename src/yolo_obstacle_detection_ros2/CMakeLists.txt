@@ -213,7 +213,10 @@ install(TARGETS obstacle_detector_node warehouse_person_detector_node astra_rgb_
          ARCHIVE DESTINATION lib
          LIBRARY DESTINATION lib
          RUNTIME DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY launch config rviz DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch config rviz DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
+  PATTERN "*.bak*" EXCLUDE)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models")
   install(DIRECTORY models DESTINATION share/${PROJECT_NAME})
 endif()

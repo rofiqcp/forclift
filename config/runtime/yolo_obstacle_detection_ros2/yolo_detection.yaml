@@ -1,7 +1,9 @@
+# CANONICAL PERCEPTION RUNTIME CONFIG
+# Authority: /home/otomasi2/forclift/config/runtime/yolo_obstacle_detection_ros2
 /**:
   ros__parameters:
-    model_path: /home/otomasi2/ros/models/yolov8n_agv_forklift.onnx
-    engine_path: ''
+    model_path: /home/otomasi2/forclift/models/yolov8n_agv_forklift_opencv.onnx
+    engine_path: /home/otomasi2/forclift/models/yolov8n_agv_forklift_opencv.engine
     confidence_threshold: 0.5
     iou_threshold: 0.45
     inference_size: 640

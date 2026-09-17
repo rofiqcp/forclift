@@ -7,6 +7,8 @@ Pipeline:
 No wheel odometry, /lidar/odom, EKF odometry, or IMU is consumed by this runtime.
 """
 from launch import LaunchDescription
+import os
+from pathlib import Path
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -22,7 +24,8 @@ def generate_launch_description():
     geometry = validate_geometry(geometry_doc, require_validated=False)
     half_x = geometry['footprint_half_length_m']
     half_y = geometry['footprint_half_width_m']
-    hector_params = '/home/otomasi2/ros/config/runtime/navigation/hector_autonomous.yaml'
+    workspace = Path(os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or (Path.home() / 'forclift'))
+    hector_params = str(workspace / 'config/runtime/navigation/hector_autonomous.yaml')
 
     mapping_filter = Node(
         package='navigation',
@@ -54,6 +57,8 @@ def generate_launch_description():
         parameters=[{
             'source_scan_topic': '/mapping/scan_filtered',
             'output_scan_topic': '/mapping/scan_nav',
+            'session_control_enabled': ParameterValue(LaunchConfiguration('session_control_enabled'), value_type=bool),
+            'initial_session_enabled': ParameterValue(LaunchConfiguration('initial_session_enabled'), value_type=bool),
             'use_sim_time': ParameterValue(use_sim_time, value_type=bool),
         }],
     )
@@ -120,6 +125,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
+        DeclareLaunchArgument('session_control_enabled', default_value='true'),
+        DeclareLaunchArgument('initial_session_enabled', default_value='false'),
         # Kept only for compatibility with the existing controller command.
         DeclareLaunchArgument('slam_params_file', default_value=hector_params),
         DeclareLaunchArgument('transform_publish_period', default_value='0.05'),

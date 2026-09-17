@@ -34,7 +34,7 @@ ROS bridge was alive and then stopped, not that Qt itself failed to start.
 
 3. `navigation_gui/main_window.py`
    - mirrors runtime bridge diagnostics to stdout so they are captured in
-     `/home/otomasi2/ros/log/agv_gui_startup.log`.
+     `/home/otomasi2/forclift/log/agv_gui_startup.log`.
 
 4. `navigation_gui/pages.py`
    - Smac/MPPI event topics now show `IDLE` instead of misleading `NO DATA` before
@@ -46,7 +46,7 @@ Run the normal GUI launch, then in another terminal verify:
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/otomasi2/ros/install/setup.bash
+source /home/otomasi2/forclift/install/setup.bash
 
 pgrep -af 'ros2.*launch.*navigation'
 ros2 node list

@@ -47,7 +47,7 @@ Semua transition penting di `autonomous.launch.py` memakai success-only OnProces
 ## Uji Jetson
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 colcon build --symlink-install --packages-select navigation esc
 source install/setup.bash
 python3 src/navigation/tools/verify_part4_stage3_autonomy_interlock.py

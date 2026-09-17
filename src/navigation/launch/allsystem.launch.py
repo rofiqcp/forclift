@@ -21,6 +21,7 @@ This prevents the camera from blocking or destabilizing serial sensor resolution
 """
 
 import os
+from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -51,6 +52,7 @@ def _success_only_exit(target_action, success_actions, stage_name: str, shutdown
 
 def generate_launch_description():
     nav_share = get_package_share_directory('navigation')
+    workspace = os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or str(Path.home() / 'forclift')
     yolo_share = get_package_share_directory('yolo_obstacle_detection_ros2')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
@@ -68,7 +70,7 @@ def generate_launch_description():
         DeclareLaunchArgument('camera_frame_id', default_value='camera_color_optical_frame'),
         DeclareLaunchArgument(
             'yolo_model',
-            default_value='/home/otomasi2/ros/models/yolov8n_agv_forklift.onnx'),
+            default_value=os.path.join(workspace, 'models', 'yolov8n_agv_forklift.onnx')),
         DeclareLaunchArgument('use_tensorrt', default_value='false'),
         DeclareLaunchArgument('yolo_engine', default_value=''),
     ]

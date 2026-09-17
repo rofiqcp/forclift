@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-WS="${1:-/home/otomasi2/ros}"
+WS="${1:-/home/otomasi2/forclift}"
 BASHRC="${HOME}/.bashrc"
 BEGIN='# >>> AGV ROS2 WORKSPACE >>>'
 END='# <<< AGV ROS2 WORKSPACE <<<'

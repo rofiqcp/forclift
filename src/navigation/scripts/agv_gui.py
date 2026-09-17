@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-LOG_PATH = Path("/home/otomasi2/ros/log/agv_gui_startup.log")
+LOG_PATH = Path("/home/otomasi2/forclift/log/agv_gui_startup.log")
 
 
 def _log(message: str) -> None:

@@ -284,8 +284,8 @@ class MapLoader:
 class MapRepository:
     """Resolve the exact three mapping_gui.py experiment slots."""
 
-    def __init__(self, workspace: str = "/home/otomasi2/ros"):
-        self.workspace = Path(workspace)
+    def __init__(self, workspace: str | None = None):
+        self.workspace = Path(workspace or os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or (Path.home() / 'forclift'))
         self.map_dir = self.workspace / "src" / "navigation" / "maps"
         self.pointer = self.workspace / "maps" / "latest_map.txt"
         self.sources = [

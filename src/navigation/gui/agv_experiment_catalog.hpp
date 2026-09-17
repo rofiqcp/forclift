@@ -1124,6 +1124,56 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
       "Heading", "derived.path_heading_error_rad"
     }
   });
+  auto perceptionCommonFields = []() {
+    return QVector<ExperimentParameterField>{
+      { "sample_rate", "Sample Rate (Hz)", "float", "", "", "10.0" },
+      { "duration", "Durasi (s)", "float", "", "", "30.0" },
+      { "variation", "Variasi / Run", "string", "", "", "run-1" },
+      { "condition", "Kondisi", "string", "", "", "statis" }
+    };
+  };
+  auto perceptionLateralCalibrationFields = [&]() {
+    auto v = perceptionCommonFields();
+    v << ExperimentParameterField("gt_lateral_cm", "Ground Truth Lateral (cm)", "float", "", "", "0.0", "", true)
+      << ExperimentParameterField("calib_mpp", "Kalibrasi meter / pixel", "float", "bbox_calib", "calibration.meter_per_pixel_at_working_distance")
+      << ExperimentParameterField("calib_setpoint_x_px", "Setpoint X (px)", "float", "bbox_calib", "setpoint.x_px")
+      << ExperimentParameterField("calib_setpoint_y_px", "Setpoint Y (px)", "float", "bbox_calib", "setpoint.y_px")
+      << ExperimentParameterField("calib_canvas_w", "Canvas width (px)", "yaml_readonly", "bbox_calib", "video.processing_width")
+      << ExperimentParameterField("calib_canvas_h", "Canvas height (px)", "yaml_readonly", "bbox_calib", "video.processing_height");
+    return v;
+  };
+  auto perceptionYawCalibrationFields = [&]() {
+    auto v = perceptionCommonFields();
+    v << ExperimentParameterField("gt_yaw_deg", "Ground Truth Yaw (deg)", "float", "", "", "0.0", "", true)
+      << ExperimentParameterField("calib_fx_px", "Focal length fx (px)", "float", "bbox_calib", "setpoint.focal_length_x_px")
+      << ExperimentParameterField("calib_cx_px", "Principal point cx (px)", "float", "bbox_calib", "setpoint.principal_x_px")
+      << ExperimentParameterField("calib_yaw_offset_deg", "Yaw zero offset (deg)", "float", "bbox_calib", "yaw.setpoint_yaw_offset_deg")
+      << ExperimentParameterField("calib_geometry_sign", "Yaw geometry sign", "yaml_readonly", "bbox_calib", "yaw.geometry_sign")
+      << ExperimentParameterField("calib_canvas_w", "Canvas width (px)", "yaml_readonly", "bbox_calib", "video.processing_width")
+      << ExperimentParameterField("calib_canvas_h", "Canvas height (px)", "yaml_readonly", "bbox_calib", "video.processing_height");
+    return v;
+  };
+  auto perceptionCombinedCalibrationFields = [&]() {
+    auto v = perceptionCommonFields();
+    v << ExperimentParameterField("gt_lateral_cm", "Ground Truth Lateral (cm)", "float", "", "", "0.0", "", true)
+      << ExperimentParameterField("gt_yaw_deg", "Ground Truth Yaw (deg)", "float", "", "", "0.0", "", true)
+      << ExperimentParameterField("calib_mpp", "Kalibrasi meter / pixel", "float", "bbox_calib", "calibration.meter_per_pixel_at_working_distance")
+      << ExperimentParameterField("calib_setpoint_x_px", "Setpoint X (px)", "float", "bbox_calib", "setpoint.x_px")
+      << ExperimentParameterField("calib_setpoint_y_px", "Setpoint Y (px)", "float", "bbox_calib", "setpoint.y_px")
+      << ExperimentParameterField("calib_fx_px", "Focal length fx (px)", "float", "bbox_calib", "setpoint.focal_length_x_px")
+      << ExperimentParameterField("calib_cx_px", "Principal point cx (px)", "float", "bbox_calib", "setpoint.principal_x_px")
+      << ExperimentParameterField("calib_yaw_offset_deg", "Yaw zero offset (deg)", "float", "bbox_calib", "yaw.setpoint_yaw_offset_deg")
+      << ExperimentParameterField("calib_geometry_sign", "Yaw geometry sign", "yaml_readonly", "bbox_calib", "yaw.geometry_sign");
+    return v;
+  };
+  auto perceptionDockingCalibrationFields = [&](bool lateral, bool yaw) {
+    auto v = perceptionCombinedCalibrationFields();
+    v << ExperimentParameterField("calib_lateral_tol_m", "Toleransi lateral (m)", "float", "bbox_calib", "alignment.lateral_tolerance_m")
+      << ExperimentParameterField("calib_yaw_tol_deg", "Toleransi yaw (deg)", "float", "bbox_calib", "alignment.yaw_tolerance_deg");
+    if (lateral) v << ExperimentParameterField("kp_lateral", "Kp lateral", "float", "bbox_calib", "control.kp_lateral");
+    if (yaw) v << ExperimentParameterField("kp_yaw", "Kp yaw", "float", "bbox_calib", "control.kp_yaw");
+    return v;
+  };
   /* ------------------------- PERSEPSI ------------------------- */
   // Struktur BAB IV Persepsi mengikuti dokumen sempro pengguna.
   // Perubahan di blok ini hanya mengatur menu/subbab, format tabel, grafik,
@@ -1336,7 +1386,7 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
     }, {
       "FPS", "perception_performance.fps"
     }
-  });
+  }, perceptionYawCalibrationFields());
   add("perception", QStringLiteral("4.3"), QStringLiteral("4.3 Pengujian Deteksi Pallet"), "4.3.3",
   QStringLiteral("4.3.3 Pengujian Variasi Pencahayaan Pallet"),
   {
@@ -1383,7 +1433,7 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
     }, {
       "FPS", "perception_performance.fps"
     }
-  });
+  }, perceptionLateralCalibrationFields());
   add("perception", QStringLiteral("4.4"), QStringLiteral("4.4 Pengujian Akurasi Error Visual"), "4.4.2",
   QStringLiteral("4.4.2 Pengujian Akurasi Error Yaw"),
   {
@@ -1406,30 +1456,28 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
     }, {
       "FPS", "perception_performance.fps"
     }
-  });
+  }, perceptionYawCalibrationFields());
   add("perception", QStringLiteral("4.4"), QStringLiteral("4.4 Pengujian Akurasi Error Visual"), "4.4.3",
-  QStringLiteral("4.4.3 Pengujian Kondisi Gabungan Lateral dan Yaw"),
+  QStringLiteral("4.4.3 Pengujian Error Forward"),
   {
-    "Hubungan error lateral dan error yaw pada kondisi gabungan"
+    "Error forward visual terhadap waktu"
   },
   {
     {
-      "Kondisi", "Lateral Aktual (cm)", "Error Lateral (px/normalisasi)", "Yaw Aktual (°)", "Yaw Visual (°)", "Error Yaw (°)"
+      "Offset/Jarak Forward Aktual (cm)", "yB (px)", "yS (px)", "Error Forward (px)", "Status Deteksi"
     }
   },
   {
     {
-      "Visual error (px)", "derived.visual_error_px"
+      "Error forward (px)", "derived.forward_error_px"
     }, {
-      "Lateral alignment (cm)", "derived.alignment_lateral_error_cm"
+      "Expected block center Y (px)", "derived.target_center_y_px"
     }, {
-      "Yaw visual (deg)", "alignment_state.error_yaw_deg"
+      "Forward setpoint Y (px)", "derived.forward_setpoint_y_px"
     }, {
-      "Lateral in tolerance", "alignment_state.lateral_within_tolerance"
-    }, {
-      "Yaw in tolerance", "alignment_state.yaw_within_tolerance"
+      "Data valid", "alignment_state.data_valid"
     }
-  });
+  }, {});
 
   add("perception", QStringLiteral("4.5"), QStringLiteral("4.5 Pengujian Kontrol Proporsional Docking"), "4.5.1",
   QStringLiteral("4.5.1 Pengujian Kontrol terhadap Error Lateral Awal"),
@@ -1453,7 +1501,7 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
     }, {
       "FPS", "perception_performance.fps"
     }
-  });
+  }, perceptionDockingCalibrationFields(true, false));
   add("perception", QStringLiteral("4.5"), QStringLiteral("4.5 Pengujian Kontrol Proporsional Docking"), "4.5.2",
   QStringLiteral("4.5.2 Pengujian Kontrol terhadap Error Yaw Awal"),
   {
@@ -1476,30 +1524,30 @@ inline QVector<ExperimentSpec> buildExperimentCatalog(const QString &subsystem) 
     }, {
       "FPS", "perception_performance.fps"
     }
-  });
+  }, perceptionDockingCalibrationFields(false, true));
   add("perception", QStringLiteral("4.5"), QStringLiteral("4.5 Pengujian Kontrol Proporsional Docking"), "4.5.3",
-  QStringLiteral("4.5.3 Variasi Error Lateral dan Yaw Gabungan"),
+  QStringLiteral("4.5.3 Pengujian Kontrol terhadap Error Forward"),
   {
-    "Respons final lateral error dan final yaw error pada kondisi gabungan"
+    "Respons error forward terhadap waktu selama pendekatan"
   },
   {
     {
-      "No.", "Kp lateral", "Kp yaw", "Lateral Awal", "Yaw Awal", "Final Lateral Error", "Final Yaw Error", "Settling Time", "Success"
+      "No.", "Jarak Awal Aktual (cm)", "Error Forward Awal (px)", "Kp,fwd", "Final Error Forward (px)", "Stopping Error (cm)", "Settling Time (s)", "Overshoot (px)", "Status"
     }
   },
   {
     {
-      "Lateral error (cm)", "derived.alignment_lateral_error_cm"
+      "Error forward (px)", "derived.forward_error_px"
     }, {
-      "Yaw error (deg)", "alignment_state.error_yaw_deg"
+      "Expected block center Y (px)", "derived.target_center_y_px"
     }, {
-      "Steering estimate", "alignment_state.estimated_steering_deg"
+      "Forward setpoint Y (px)", "derived.forward_setpoint_y_px"
     }, {
-      "Velocity cmd", "alignment_state.linear_velocity_cmd"
+      "Velocity preview", "alignment_state.linear_velocity_cmd"
     }, {
-      "Ready insertion", "alignment_state.ready_for_insertion"
+      "Data valid", "alignment_state.data_valid"
     }
-  });
+  }, {});
   /* ------------------------- ESC / BLDC FOC ------------------------- */
   add("steering", QStringLiteral("4.1"), QStringLiteral("4.1 Pengujian Controller Hoverboard STM32F103RCT6"), "4.1",
   QStringLiteral("4.1 Pengujian Controller Hoverboard STM32F103RCT6"),

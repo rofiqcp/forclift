@@ -43,7 +43,7 @@ from navigation_runtime.vehicle_geometry import sync_derived_configs
 
 
 def _runtime_config(package_share: str, package_name: str, filename: str) -> str:
-    ws = os.environ.get('AGV_WS', '/home/otomasi2/ros')
+    ws = (os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or os.path.expanduser('~/forclift'))
     root = os.environ.get('AGV_RUNTIME_CONFIG_ROOT', os.path.join(ws, 'config', 'runtime'))
     target = os.path.join(os.path.expanduser(root), package_name, filename)
     source = os.path.join(package_share, 'config', filename)
@@ -87,7 +87,7 @@ def generate_launch_description():
         DeclareLaunchArgument('imu_baudrate', default_value='921600'),
         DeclareLaunchArgument('lidar_port', default_value='/tmp/agv_devices/lidar'),
         DeclareLaunchArgument('lidar_baudrate', default_value='230400'),
-        DeclareLaunchArgument('esc_port', default_value='/dev/esc'),
+        DeclareLaunchArgument('esc_port', default_value='/dev/vesc_drive'),
         DeclareLaunchArgument('enable_camera', default_value='true'),
         DeclareLaunchArgument('camera_device', default_value='auto'),
         DeclareLaunchArgument('camera_fps', default_value='30'),
@@ -108,7 +108,7 @@ def generate_launch_description():
     esc = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(esc_share, 'launch', 'esc.launch.py')),
         launch_arguments={
-            'profile': 'ackermann_1_board.yaml',
+            'profile': 'ackermann_dual_vesc.yaml',
             'board0_port': LaunchConfiguration('esc_port'),
             'use_sim_time': use_sim_time,
             'enable_keyboard': 'false',

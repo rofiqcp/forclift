@@ -18,7 +18,7 @@
 
 ### Map
 
-- New mapping saves to `/home/otomasi2/ros/maps`.
+- New mapping saves to `/home/otomasi2/forclift/maps`.
 - Installer migrates valid YAML + image pairs from current and `src_backup*`
   trees into the persistent map directory.
 - `map:=auto` ranks `map_YYYYMMDD_HHMMSS` by embedded timestamp, validates the

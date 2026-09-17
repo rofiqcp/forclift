@@ -2,7 +2,7 @@
 # Docking / center-target visualization is intentionally NOT part of this node.
 /**:
   ros__parameters:
-    model_path: "/home/otomasi2/ros/models/yolov8n_agv_forklift.onnx"
+    model_path: "/home/otomasi2/forclift/models/yolov8n_agv_forklift.onnx"
     engine_path: ""
     confidence_threshold: 0.25
     iou_threshold: 0.45

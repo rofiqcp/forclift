@@ -20,7 +20,7 @@ find_package(nav2_controller REQUIRED)
 find_package(nav2_core REQUIRED)
 find_package(pluginlib REQUIRED)
 
-add_executable(esc_driver src/esc_driver_node.cpp src/serial_board.cpp)
+add_executable(esc_driver src/esc_driver_node.cpp src/vesc_board.cpp)
 target_include_directories(esc_driver PUBLIC include)
 ament_target_dependencies(esc_driver rclcpp geometry_msgs nav_msgs sensor_msgs std_msgs)
 

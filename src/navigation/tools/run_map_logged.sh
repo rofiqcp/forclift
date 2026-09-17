@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WS="${AGV_WS:-/home/otomasi2/ros}"
+WS="${AGV_WS:-/home/otomasi2/forclift}"
 source /opt/ros/humble/setup.bash
 if [[ -f /home/otomasi2/jetson_install/ros_overlay/install/setup.bash ]]; then
   source /home/otomasi2/jetson_install/ros_overlay/install/setup.bash

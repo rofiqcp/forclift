@@ -63,7 +63,7 @@ The static verifier reports this as a warning, not a failure.
 ## Required on-Jetson validation
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 colcon build --symlink-install --packages-select navigation esc
 source install/setup.bash
 python3 src/navigation/tools/verify_part1_core.py

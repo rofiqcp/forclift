@@ -5,23 +5,52 @@ branding:
   logo_path: ""
 
 workspace:
-  root: "/home/otomasi2/ros"
+  root: "/home/otomasi2/forclift"
 
 mapping:
-  launch_file: "/home/otomasi2/ros/src/navigation/launch/map.launch.py"
-  source_map_dir: "/home/otomasi2/ros/src/navigation/maps"
+  launch_file: "/home/otomasi2/forclift/src/navigation/launch/map.launch.py"
+  source_map_dir: "/home/otomasi2/forclift/src/navigation/maps"
   map_slots:
-    - "/home/otomasi2/ros/src/navigation/maps/map_1.yaml"
-    - "/home/otomasi2/ros/src/navigation/maps/map_2.yaml"
-    - "/home/otomasi2/ros/src/navigation/maps/map_3.yaml"
-  persistent_map_dir: "/home/otomasi2/ros/maps"
-  latest_map_pointer: "/home/otomasi2/ros/maps/latest_map.txt"
+    - "/home/otomasi2/forclift/src/navigation/maps/map_1.yaml"
+    - "/home/otomasi2/forclift/src/navigation/maps/map_2.yaml"
+    - "/home/otomasi2/forclift/src/navigation/maps/map_3.yaml"
+  persistent_map_dir: "/home/otomasi2/forclift/maps"
+  latest_map_pointer: "/home/otomasi2/forclift/maps/latest_map.txt"
   auto_detect_results: true
 
 logging:
-  output_dir: "/home/otomasi2/ros/log/agv_gui"
+  output_dir: "/home/otomasi2/forclift/log/agv_gui"
 
 ui:
   history_seconds: 60
   default_theme: "dark"
   left_right_ratio: [2, 4]
+
+# Fixed operational waypoints for the single Navigation Map.
+# A is reserved as HOME. Coordinates remain disabled until explicitly saved by the operator.
+navigation_waypoints:
+  map: "map_Navigation.yaml"
+  A:
+    name: "HOME"
+    enabled: true
+    x: 1.570466885841852
+    y: 4.276731933705038
+    yaw_deg: -9.326725233070938
+  B:
+    name: "B"
+    enabled: true
+    x: 6.01
+    y: 3.75
+    yaw_deg: -66.8
+  C:
+    name: "C"
+    enabled: true
+    x: 5.89
+    y: 1.01
+    yaw_deg: -160.0
+  D:
+    name: "D"
+    enabled: true
+    x: 1.25
+    y: -4.76
+    yaw_deg: -160.0

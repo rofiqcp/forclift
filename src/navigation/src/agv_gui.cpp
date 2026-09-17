@@ -872,8 +872,8 @@ private:
     logo->setAlignment(Qt::AlignCenter);
     logo->setFixedSize(72, 72);
     const QStringList logo_candidates = {
-      "/home/otomasi2/ros/install/navigation/share/navigation/assets/logo_undip.png",
-      "/home/otomasi2/ros/src/navigation/assets/logo_undip.png"};
+      "/home/otomasi2/forclift/install/navigation/share/navigation/assets/logo_undip.png",
+      "/home/otomasi2/forclift/src/navigation/assets/logo_undip.png"};
     bool logo_loaded = false;
     for (const auto & candidate : logo_candidates) {
       QPixmap pix(candidate);
@@ -1705,9 +1705,9 @@ private:
   {
     const QString filename = QString("map_%1.yaml").arg(slot);
     const QStringList candidates = {
-      "/home/otomasi2/ros/src/navigation/maps/" + filename,
-      "/home/otomasi2/ros/maps/" + filename,
-      "/home/otomasi2/ros/install/navigation/share/navigation/maps/" + filename};
+      "/home/otomasi2/forclift/src/navigation/maps/" + filename,
+      "/home/otomasi2/forclift/maps/" + filename,
+      "/home/otomasi2/forclift/install/navigation/share/navigation/maps/" + filename};
     for (const auto & path : candidates) if (QFileInfo::exists(path)) return path;
     return candidates.front();
   }
@@ -1722,7 +1722,7 @@ private:
         QFileInfo::exists(path) ? QString("Map %1: FOUND\n%2").arg(slot).arg(path) : QString("Map %1: NOT FOUND\n%2").arg(slot).arg(path));
     }
 
-    QFile pointer("/home/otomasi2/ros/maps/latest_map.txt");
+    QFile pointer("/home/otomasi2/forclift/maps/latest_map.txt");
     QString active = "-";
     if (pointer.open(QIODevice::ReadOnly | QIODevice::Text)) active = QString::fromUtf8(pointer.readAll()).trimmed();
 
@@ -1756,14 +1756,14 @@ private:
 
   void openRviz()
   {
-    QString rviz = "/home/otomasi2/ros/install/navigation/share/navigation/rviz/autonomous.rviz";
-    if (!QFileInfo::exists(rviz)) rviz = "/home/otomasi2/ros/src/navigation/rviz/autonomous.rviz";
-    QProcess::startDetached("rviz2", QStringList{"-d", rviz}, "/home/otomasi2/ros");
+    QString rviz = "/home/otomasi2/forclift/install/navigation/share/navigation/rviz/autonomous.rviz";
+    if (!QFileInfo::exists(rviz)) rviz = "/home/otomasi2/forclift/src/navigation/rviz/autonomous.rviz";
+    QProcess::startDetached("rviz2", QStringList{"-d", rviz}, "/home/otomasi2/forclift");
   }
 
   void openMapping()
   {
-    QProcess::startDetached("ros2", QStringList{"launch", "navigation", "map.launch.py", "enable_rviz:=true"}, "/home/otomasi2/ros");
+    QProcess::startDetached("ros2", QStringList{"launch", "navigation", "map.launch.py", "enable_rviz:=true"}, "/home/otomasi2/forclift");
   }
 
   std::shared_ptr<DashboardRosNode> node_;

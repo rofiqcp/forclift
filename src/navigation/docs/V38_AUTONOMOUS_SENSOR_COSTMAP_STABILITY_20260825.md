@@ -23,7 +23,7 @@
 ## Build dan uji perangkat
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 bash src/navigation/tools/rebuild_navigation_clean.sh
 source install/setup.bash
 python3 install/navigation/lib/navigation/verify_v38_autonomous_sensor_costmap_stability.py
@@ -33,9 +33,9 @@ bash src/navigation/tools/run_autonomous.sh auto
 Di terminal kedua, setelah autonomous siap:
 
 ```bash
-source /home/otomasi2/ros/install/setup.bash
+source /home/otomasi2/forclift/install/setup.bash
 AUTONOMOUS_CHECK_REQUIRE_PERCEPTION=0 \
-  python3 /home/otomasi2/ros/install/navigation/lib/navigation/autonomous_runtime_check.py
+  python3 /home/otomasi2/forclift/install/navigation/lib/navigation/autonomous_runtime_check.py
 ```
 
 PASS perangkat keras memerlukan `/imu/data >= 20 Hz`, `/scan_nav >= 3 Hz`, kedua costmap, seluruh lifecycle Nav2, dan rantai TF termasuk `map -> visual_/base_footprint`.

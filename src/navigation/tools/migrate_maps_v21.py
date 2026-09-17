@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Migrate valid saved-map pairs into /home/otomasi2/ros/maps.
+"""Migrate valid saved-map pairs into /home/otomasi2/forclift/maps.
 
 V21 keeps mapping output outside the source tree.  This helper also recovers
 maps from src_backup* directories created by previous clean source installs.
@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import re
 import shutil
 
-WS = Path('/home/otomasi2/ros')
+WS = Path('/home/otomasi2/forclift')
 DEST = WS / 'maps'
 
 

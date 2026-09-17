@@ -1,18 +1,14 @@
 ekf_filter_node:
   ros__parameters:
-    # PART-1 production local odometry.
-    # TF ownership is singular:
+    # One EKF/TF owner for every navigation sensor mode.
+    # SensorModeManager multiplexes measurements; EKF topology never changes.
     #   AMCL -> map -> odom
     #   EKF  -> odom -> base_footprint
-    # Wheel/ESC velocity + IMU gyro are the production local-motion sources.
-    # LiDAR scan matching is diagnostic-only and does not enter this EKF.
     frequency: 30.0
     sensor_timeout: 0.35
     two_d_mode: true
     publish_tf: true
     publish_acceleration: false
-    # Keep odom->base TF current even when sensor callbacks are delayed under Jetson load.
-    # This changes only TF prediction timing; sensor fusion sources stay unchanged.
     predict_to_current_time: true
     print_diagnostics: true
 
@@ -21,12 +17,12 @@ ekf_filter_node:
     base_link_frame: base_footprint
     world_frame: odom
 
-    # Primary longitudinal motion source. Offline ESC placeholders carry very
-    # large covariance in esc_driver_node and therefore cannot pin the EKF.
-    odom0: /esc/odom
+    # Selected longitudinal velocity:
+    # mode 1/2 = LiDAR scan-matching vx; mode 3 = ESC/Hall vx.
+    odom0: /sensor_mode/odom_vx
     odom0_config: [false, false, false,
                    false, false, false,
-                   true,  true,  false,
+                   true,  false, false,
                    false, false, false,
                    false, false, false]
     odom0_differential: false
@@ -35,14 +31,22 @@ ekf_filter_node:
     odom0_nodelay: true
     odom0_twist_rejection_threshold: 2.0
 
-    # PART-5 Stage-1: /lidar/odom remains available as a diagnostic and
-    # offline/fallback comparison topic, but is intentionally NOT fused here.
-    # This avoids correlating the same LiDAR measurement through both the
-    # local EKF and AMCL/SLAM global localization path.
+    # LiDAR-only heading source. SensorModeManager publishes this topic only
+    # in mode 1. Differential yaw avoids dependence on an arbitrary odom origin.
+    odom1: /sensor_mode/lidar_heading
+    odom1_config: [false, false, false,
+                   false, false, true,
+                   false, false, false,
+                   false, false, false,
+                   false, false, false]
+    odom1_differential: true
+    odom1_relative: false
+    odom1_queue_size: 30
+    odom1_nodelay: true
+    odom1_pose_rejection_threshold: 1.2
 
-    # Fast heading-rate source. Absolute magnetometer yaw is intentionally not
-    # fused indoors until it has been calibrated and validated.
-    imu0: /imu/data
+    # Modes 2/3 use only IMU yaw-rate; absolute magnetometer yaw stays excluded.
+    imu0: /sensor_mode/imu
     imu0_config: [false, false, false,
                   false, false, false,
                   false, false, false,
@@ -53,4 +57,3 @@ ekf_filter_node:
     imu0_remove_gravitational_acceleration: false
     imu0_queue_size: 100
     imu0_nodelay: true
-    imu0_twist_rejection_threshold: 1.5

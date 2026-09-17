@@ -21,8 +21,10 @@ from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String, Bool
 from std_srvs.srv import Trigger
 
-WORKSPACE = Path('/home/otomasi2/ros')
+WORKSPACE = Path(os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or (Path.home() / 'forclift')).expanduser()
 MAP_DIR = WORKSPACE / 'src/navigation/maps'
+BUILD_MAP_DIR = MAP_DIR / 'build_map'
+BUILD_MAP_SESSION_ID = 1001  # internal session marker; never exposed as a user map slot
 POINTER_DIR = WORKSPACE / 'maps'
 LATEST_POINTER = POINTER_DIR / 'latest_map.txt'
 PID_FILE = Path('/tmp/agv_mapping_runtime.pid')
@@ -36,7 +38,7 @@ GUI_STATIC_DIRS = tuple(dict.fromkeys((
 LIVE_MAP_PNG = WEB_STATIC_DIR / 'mapping_live.png'
 SAVED_MAP_CATALOG = WEB_STATIC_DIR / 'saved_maps.json'
 # During BAB 4.2 mapping, pause every Nav2 lifecycle group that is not
-# required by the mapping sensor path. LiDAR, IMU, Hector /lidar/odom, TF,
+# required by the mapping sensor path. LiDAR source/TF,
 # web GUI and the mapping bridge remain alive. This releases CPU for
 # slam_toolbox construction/discovery on the Jetson, then all managers are
 # resumed in reverse order after Stop/Save or on startup failure.
@@ -180,6 +182,7 @@ class MappingWebController(Node):
         self._saved_path = ''
         self._saved_yaml_path = ''
         self._saved_slot = 0
+        self._last_stopped_slot = 0
         self._saved_map_signature = None
         self._mapping_odom_status = {}
         self._nav_map_switch_status = {}
@@ -216,9 +219,12 @@ class MappingWebController(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._mapping_topic = '/mapping/map' if self._shared_sensor_mode else '/map'
-        self.create_subscription(OccupancyGrid, self._mapping_topic, self._on_map, map_qos)
+        self._build_map_topic = '/build_map/map'
+        self.create_subscription(OccupancyGrid, self._mapping_topic, self._on_mapping_map, map_qos)
+        self.create_subscription(OccupancyGrid, self._build_map_topic, self._on_build_map, map_qos)
         self.create_subscription(String, '/mapping/odom_status', self._on_mapping_odom_status, 10)
         self.create_subscription(PoseStamped, '/mapping/pose', self._on_mapping_pose, 10)
+        self.create_subscription(PoseStamped, '/build_map/pose', self._on_build_map_pose, 10)
         self.create_subscription(String, '/navigation/map_switch_status', self._on_nav_map_switch_status, 10)
         self._status_pub = self.create_publisher(String, '/mapping/web_status', 10)
         session_qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -236,8 +242,15 @@ class MappingWebController(Node):
             self.create_service(
                 Trigger, f'/mapping/delete_{slot}',
                 lambda req, resp, s=slot: self._delete_service(s, req, resp))
+            self.create_service(
+                Trigger, f'/mapping/save_last_{slot}',
+                lambda req, resp, s=slot: self._save_last_service(s, req, resp))
         self.create_service(Trigger, '/mapping/stop_save', self._stop_save_service)
         self.create_service(Trigger, '/mapping/stop_without_save', self._stop_without_save_service)
+        # Operational Build Map is intentionally isolated from BAB 4.2 slots 1..3.
+        self.create_service(Trigger, '/build_map/start', lambda req, resp: self._start_service(BUILD_MAP_SESSION_ID, req, resp))
+        self.create_service(Trigger, '/build_map/stop', self._stop_without_save_service)
+        self.create_service(Trigger, '/build_map/save_last', lambda req, resp: self._save_last_service(BUILD_MAP_SESSION_ID, req, resp))
         self.create_timer(0.5, self._publish_status)
         self.create_timer(0.5, self._engine_housekeeping)
         self.create_timer(2.0, self._refresh_saved_map_catalog)
@@ -268,7 +281,17 @@ class MappingWebController(Node):
             runs.append(f'{last}{count:x}')
         return ','.join(runs)
 
-    def _on_map(self, msg):
+    def _on_mapping_map(self, msg):
+        if self._active_slot == BUILD_MAP_SESSION_ID or self._pending_start_slot == BUILD_MAP_SESSION_ID:
+            return
+        self._process_map(msg)
+
+    def _on_build_map(self, msg):
+        if self._active_slot != BUILD_MAP_SESSION_ID and self._pending_start_slot != BUILD_MAP_SESSION_ID:
+            return
+        self._process_map(msg)
+
+    def _process_map(self, msg):
         if msg.info.width == 0 or msg.info.height == 0 or not msg.data:
             return
         now = time.monotonic()
@@ -504,6 +527,31 @@ class MappingWebController(Node):
         except Exception:
             pass
 
+    def _on_build_map_pose(self, msg):
+        if self._active_slot != BUILD_MAP_SESSION_ID and self._pending_start_slot != BUILD_MAP_SESSION_ID:
+            return
+        try:
+            q = msg.pose.orientation
+            yaw = yaw_from_quaternion(q)
+            self._mapping_odom_status.update({
+                'ready': True,
+                'pose_ready': True,
+                'odometry_used': False,
+                'imu_used': False,
+                'sensor_source': 'lidar_only',
+                'translation_source': 'lidar_scan_matching',
+                'rotation_source': 'lidar_scan_matching',
+                'map_x': round(float(msg.pose.position.x), 5),
+                'map_y': round(float(msg.pose.position.y), 5),
+                'map_yaw': round(float(yaw), 6),
+                'x': round(float(msg.pose.position.x), 5),
+                'y': round(float(msg.pose.position.y), 5),
+                'yaw': round(float(yaw), 6),
+                'pose_source': 'build_map_hector_lidar_only',
+            })
+        except Exception:
+            pass
+
     def _on_nav_map_switch_status(self, msg):
         try:
             payload = json.loads(msg.data)
@@ -522,6 +570,12 @@ class MappingWebController(Node):
                     items.append((slot, suffix, st.st_mtime_ns, st.st_size))
                 except OSError:
                     items.append((slot, suffix, None, None))
+            name_path = MAP_DIR / f'map_{slot}_name.txt'
+            try:
+                st = name_path.stat()
+                items.append((slot, '.name', st.st_mtime_ns, st.st_size))
+            except OSError:
+                items.append((slot, '.name', None, None))
         try:
             pointer = LATEST_POINTER.read_text(encoding='utf-8').strip()
         except OSError:
@@ -545,8 +599,16 @@ class MappingWebController(Node):
             yaml_path = MAP_DIR / f'map_{slot}.yaml'
             preview = WEB_STATIC_DIR / f'saved_map_{slot}.png'
             structure_path = MAP_DIR / f'map_{slot}_structure.json'
+            name_path = MAP_DIR / f'map_{slot}_name.txt'
+            display_name = f'Map {slot}'
+            try:
+                saved_name = name_path.read_text(encoding='utf-8').strip()
+                if re.fullmatch(r'[A-Za-z0-9_-]{1,64}', saved_name):
+                    display_name = saved_name
+            except OSError:
+                pass
             item = {
-                'slot': slot, 'name': f'Map {slot}', 'available': False,
+                'slot': slot, 'name': display_name, 'available': False,
                 'pgm': str(pgm), 'yaml': str(yaml_path),
                 'structure_json': str(structure_path),
                 'preview_url': f'/saved_map_{slot}.png',
@@ -650,8 +712,17 @@ class MappingWebController(Node):
         yaml_path = MAP_DIR / f'map_{slot}.yaml'
         structure_path = MAP_DIR / f'map_{slot}_structure.json'
         preview = WEB_STATIC_DIR / f'saved_map_{slot}.png'
+        name_path = MAP_DIR / f'map_{slot}_name.txt'
+        alias = ''
+        try:
+            alias = name_path.read_text(encoding='utf-8').strip()
+        except OSError:
+            pass
         existed = pgm.exists() or yaml_path.exists() or structure_path.exists()
-        for path in (pgm, yaml_path, structure_path, preview):
+        if re.fullmatch(r'[A-Za-z0-9_-]{1,64}', alias) and alias != f'map_{slot}':
+            (MAP_DIR / f'{alias}.pgm').unlink(missing_ok=True)
+            (MAP_DIR / f'{alias}.yaml').unlink(missing_ok=True)
+        for path in (pgm, yaml_path, structure_path, preview, name_path):
             path.unlink(missing_ok=True)
 
         try:
@@ -678,6 +749,8 @@ class MappingWebController(Node):
             else:
                 LATEST_POINTER.unlink(missing_ok=True)
 
+        if self._last_stopped_slot == slot:
+            self._last_stopped_slot = 0
         if self._saved_slot == slot:
             self._saved_slot = 0
             self._saved_path = ''
@@ -772,8 +845,9 @@ class MappingWebController(Node):
         """Temporarily suspend CPU-heavy non-mapping processes for BAB 4.2.
 
         SIGSTOP/SIGCONT preserves each process exactly as-is and avoids Nav2
-        lifecycle/respawn churn.  Mapping-critical LiDAR, IMU, scan filters,
-        mapping controller/bridge, web GUI, actuator and safety guard remain live.
+        lifecycle/respawn churn. BAB 4.2 keeps only the shared LiDAR transport,
+        LiDAR scan filters, mapping controller/bridge and operator web path live.
+        IMU/EKF/main localization/perception are not mapping inputs and are paused.
         """
         patterns = (
             '/nav2_amcl/amcl',
@@ -784,11 +858,14 @@ class MappingWebController(Node):
             '/nav2_bt_navigator/bt_navigator',
             '/nav2_velocity_smoother/velocity_smoother',
             '__node:=hector_slam_node',
+            '/navigation/lib/navigation/imu_node',
             '/robot_localization/ekf_node',
             'localization_timing_monitor.py',
             'nav_map_switch_controller.py',
             'autonomy_health_manager.py',
             'astra_rgb_v4l2_node',
+            'obstacle_detector_node',
+            'warehouse_person_detector_node',
             'hole_block_alignment_node.py',
             'imu_visual_tf_node',
         )
@@ -823,7 +900,7 @@ class MappingWebController(Node):
         # During a live BAB 4.2 session, navigation must remain inactive. If an
         # external watchdog or late lifecycle transition reactivates a node,
         # force only that navigation node back to INACTIVE without touching
-        # LiDAR/IMU/Hector/mapping TF.
+        # the shared LiDAR transport or isolated LiDAR-only mapper.
         for node_name in NAVIGATION_LIFECYCLE_NODES:
             if self._lifecycle_state(node_name) != 'active':
                 continue
@@ -913,7 +990,12 @@ class MappingWebController(Node):
             return 0
 
     def _cleanup_orphan_slam_nodes(self):
-        """Kill only orphaned mapping slam_toolbox children (PPID=1)."""
+        """Kill only orphaned BAB 4.2 LiDAR-only mapping children (PPID=1)."""
+        mapping_tokens = (
+            'mapping_hector_slam_node',
+            'mapping_scan_self_filter',
+            'mapping_lidar_odom_bridge',
+        )
         for proc_dir in Path('/proc').iterdir():
             if not proc_dir.name.isdigit():
                 continue
@@ -927,9 +1009,9 @@ class MappingWebController(Node):
                 cmd = (proc_dir / 'cmdline').read_bytes().replace(b'\0', b' ').decode('utf-8', 'ignore')
             except (OSError, ValueError, StopIteration):
                 continue
-            if 'async_slam_toolbox_node' not in cmd or 'map:=/mapping/map' not in cmd:
+            if not any(token in cmd for token in mapping_tokens):
                 continue
-            self.get_logger().warning(f'Cleaning orphan mapping slam_toolbox PID {pid}')
+            self.get_logger().warning(f'Cleaning orphan LiDAR-only mapping PID {pid}: {cmd[:120]}')
             try:
                 os.kill(pid, signal.SIGTERM)
                 time.sleep(0.15)
@@ -992,7 +1074,10 @@ class MappingWebController(Node):
         log_path = WORKSPACE / 'log' / f'mapping_engine_{stamp}.txt'
         self._log_handle = open(log_path, 'ab', buffering=0)
         try:
-            cmd = self._shared_slam_command()
+            is_build_map = (reason.startswith('build-map') or
+                            self._pending_start_slot == BUILD_MAP_SESSION_ID or
+                            self._active_slot == BUILD_MAP_SESSION_ID)
+            cmd = self._build_map_slam_command() if is_build_map else self._shared_slam_command()
             self._proc = subprocess.Popen(
                 cmd, cwd=str(WORKSPACE), stdout=self._log_handle,
                 stderr=subprocess.STDOUT, preexec_fn=os.setsid, env=os.environ.copy())
@@ -1025,12 +1110,16 @@ class MappingWebController(Node):
                 nodes.add(full.replace('//', '/'))
         except Exception:
             return False
+        build_map_mode = (self._pending_start_slot == BUILD_MAP_SESSION_ID or
+                          self._active_slot == BUILD_MAP_SESSION_ID)
+        if build_map_mode:
+            return '/build_map_hector_slam_node' in nodes and self._scan_nav_raw_available()
         hector_ready = '/mapping_hector_slam_node' in nodes
         gate_ready = bool(self._mapping_odom_status.get('ready', False))
         return hector_ready and gate_ready
 
     def _begin_shared_session(self, slot):
-        if slot not in (1, 2, 3) or not self._engine_ready:
+        if slot not in (1, 2, 3, BUILD_MAP_SESSION_ID) or not self._engine_ready:
             return False
         self._pending_start_slot = 0
         self._engine_start_retry_count = 0
@@ -1186,6 +1275,25 @@ class MappingWebController(Node):
         if self._pending_start_slot and self._engine_ready and not self._session_active:
             self._begin_shared_session(self._pending_start_slot)
 
+    def _scan_nav_raw_available(self):
+        try:
+            return len(self.get_publishers_info_by_topic('/scan_nav_raw')) > 0
+        except Exception:
+            return False
+
+    def _build_map_slam_command(self):
+        use_sim_time = bool(self.get_parameter('use_sim_time').value)
+        start_lidar = not self._scan_nav_raw_available()
+        if start_lidar and not Path('/tmp/agv_devices/lidar').exists():
+            raise RuntimeError('LiDAR tidak aktif dan alias /tmp/agv_devices/lidar tidak tersedia')
+        self.get_logger().info(
+            'Build Map source: ' + ('own LiDAR runtime' if start_lidar else 'shared /scan_nav_raw'))
+        return [
+            'ros2', 'launch', 'navigation', 'build_map_slam.launch.py',
+            f'use_sim_time:={"true" if use_sim_time else "false"}',
+            f'start_lidar:={"true" if start_lidar else "false"}',
+        ]
+
     def _shared_slam_command(self):
         params = self._slam_params_path()
         use_sim_time = bool(self.get_parameter('use_sim_time').value)
@@ -1216,17 +1324,54 @@ class MappingWebController(Node):
         if self._runtime_alive() or self._pending_start_slot:
             response.success = False
             current = self._active_slot or self._pending_start_slot
-            response.message = f'Mapping MAP {current} masih aktif/dipersiapkan'
+            response.message = ('Build Map masih aktif/dipersiapkan' if current == BUILD_MAP_SESSION_ID else f'Mapping MAP {current} masih aktif/dipersiapkan')
             return response
-        if slot not in (1, 2, 3):
+        if slot not in (1, 2, 3, BUILD_MAP_SESSION_ID):
             response.success = False
-            response.message = 'Slot map harus 1..3'
+            response.message = 'Target mapping tidak valid'
             return response
+        self._last_stopped_slot = 0
+        if self._shared_sensor_mode and slot == BUILD_MAP_SESSION_ID:
+            # Independent operational Build Map: do not depend on BAB 4.2 slots
+            # or /navigation/map_switch_status. Pause any currently-running
+            # navigation/localization consumers directly, then start the isolated
+            # LiDAR-only SLAM engine. The scan gate remains OFF until engine READY.
+            self._pending_start_slot = BUILD_MAP_SESSION_ID
+            self._engine_start_retry_count = 0
+            self._phase = 'PREPARING'
+            self._last_error = ''
+            self._reset_mapping_pose_status(False)
+            with self._lock:
+                self._latest_map = None
+                self._last_map_monotonic = 0.0
+            self._map_stats = {}
+            self._reset_structure_evaluator()
+            LIVE_MAP_PNG.unlink(missing_ok=True)
+            self._publish_session_enabled(False)
+            self._publish_status()
+            try:
+                self._pause_navigation()
+                self._engine_restart_reason = 'build-map-start'
+                self._launch_engine('build-map-start')
+            except Exception as exc:
+                self._pending_start_slot = 0
+                self._phase = 'ERROR'
+                self._last_error = str(exc)
+                self._resume_navigation()
+                response.success = False
+                response.message = f'START BUILD MAP gagal: {exc}'
+                self.get_logger().error(response.message)
+                self._publish_status()
+                return response
+            response.success = True
+            response.message = 'START BUILD MAP: SLAM independen sedang disiapkan; BAB 4.2 tidak disentuh'
+            return response
+
         if self._shared_sensor_mode:
             # BAB 4.2 mapping-only: advertise ownership first, then request
             # NAV2_OFF. The callback returns immediately; housekeeping starts
             # SLAM only after /navigation/map_switch_status confirms NAV2_OFF.
-            # LiDAR, IMU, Hector /lidar/odom, base TF and web GUI stay alive.
+            # LiDAR source and web GUI stay alive; IMU/EKF/ESC are not mapping inputs.
             self._pending_start_slot = slot
             self._engine_start_retry_count = 0
             self._phase = 'WAITING_NAV2_OFF'
@@ -1247,7 +1392,7 @@ class MappingWebController(Node):
             if already_off:
                 self._nav_stop_requested_at = time.monotonic()
                 response.success = True
-                response.message = f'START MAP {slot}: Nav2 sudah OFF; menyiapkan SLAM'
+                response.message = ('START BUILD MAP: Nav2 sudah OFF; menyiapkan SLAM' if slot == BUILD_MAP_SESSION_ID else f'START MAP {slot}: Nav2 sudah OFF; menyiapkan SLAM')
                 return response
             try:
                 self._request_navigation_off()
@@ -1261,7 +1406,7 @@ class MappingWebController(Node):
                 self._publish_status()
                 return response
             response.success = True
-            response.message = f'START MAP {slot}: request diterima; menunggu NAV2 OFF sebelum SLAM'
+            response.message = ('START BUILD MAP: request diterima; menunggu NAV2 OFF sebelum SLAM' if slot == BUILD_MAP_SESSION_ID else f'START MAP {slot}: request diterima; menunggu NAV2 OFF sebelum SLAM')
             return response
 
         # Publish PREPARING immediately so localhost never looks idle after START.
@@ -1287,7 +1432,7 @@ class MappingWebController(Node):
             if self._shared_sensor_mode:
                 LIVE_MAP_PNG.unlink(missing_ok=True)
                 cmd = self._shared_slam_command()
-                runtime_label = 'mapping_shared_slam(lidar odom synced; isolated /mapping/map)'
+                runtime_label = 'mapping_shared_slam(LiDAR-only; isolated /mapping/map)'
             else:
                 cmd = ['ros2', 'launch', 'navigation', 'mapping_runtime.launch.py', 'enable_rviz:=false']
                 runtime_label = 'mapping_runtime'
@@ -1319,7 +1464,7 @@ class MappingWebController(Node):
             self._publish_status()
         return response
 
-    def _snapshot_map(self):
+    def _snapshot_map(self, allow_stale=False):
         with self._lock:
             msg = self._latest_map
             age = time.monotonic() - self._last_map_monotonic if self._last_map_monotonic else 1e9
@@ -1328,7 +1473,7 @@ class MappingWebController(Node):
         expected = int(msg.info.width) * int(msg.info.height)
         if expected <= 0 or len(msg.data) != expected:
             raise RuntimeError('Pesan /map memiliki ukuran/data tidak valid')
-        if age > 3.0:
+        if age > 3.0 and not allow_stale:
             raise RuntimeError(f'/map tidak fresh ({age:.1f}s); mapping tetap aktif')
         return msg
 
@@ -1347,11 +1492,14 @@ class MappingWebController(Node):
         if abs(ox + 20.0) > 1e-4 or abs(oy + 20.0) > 1e-4:
             raise RuntimeError(f'Origin mapping harus [-20,-20], aktual [{ox:.6f},{oy:.6f}]')
 
-    def _write_map(self, slot):
-        msg = self._snapshot_map()
+    def _write_map(self, slot, allow_stale=False):
+        msg = self._snapshot_map(allow_stale=allow_stale)
         self._validate_navigation_map_grid(msg)
-        MAP_DIR.mkdir(parents=True, exist_ok=True)
-        prefix = MAP_DIR / f'map_{slot}'
+        operational = (slot == BUILD_MAP_SESSION_ID)
+        target_dir = BUILD_MAP_DIR if operational else MAP_DIR
+        target_dir.mkdir(parents=True, exist_ok=True)
+        base_name = 'build_map_latest' if operational else f'map_{slot}'
+        prefix = target_dir / base_name
         pgm_final = prefix.with_suffix('.pgm')
         yaml_final = prefix.with_suffix('.yaml')
         pgm_tmp = Path(str(pgm_final) + '.tmp')
@@ -1375,27 +1523,29 @@ class MappingWebController(Node):
                         pixel = 254
                     row[x] = pixel
                 f.write(row)
-            f.flush()
-            os.fsync(f.fileno())
+            f.flush(); os.fsync(f.fileno())
 
         origin = msg.info.origin
         yaw = yaw_from_quaternion(origin.orientation)
         yaml_text = (
-            f'image: map_{slot}.pgm\n'
+            f'image: {base_name}.pgm\n'
             'mode: trinary\n'
             f'resolution: {msg.info.resolution:.6f}\n'
             f'origin: [{origin.position.x:.6f}, {origin.position.y:.6f}, {yaw:.6f}]\n'
             'negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n')
         with open(yaml_tmp, 'w', encoding='utf-8') as f:
-            f.write(yaml_text)
-            f.flush()
-            os.fsync(f.fileno())
-
+            f.write(yaml_text); f.flush(); os.fsync(f.fileno())
         os.replace(pgm_tmp, pgm_final)
         os.replace(yaml_tmp, yaml_final)
 
-        # Saved PNG is generated from the SAME latest OccupancyGrid snapshot as
-        # PGM/YAML. It is export-only; live BAB 4.2 canvas uses map_grid RLE.
+        if operational:
+            # Build Map outputs are isolated: no BAB 4.2 preview, structure file,
+            # saved_maps.json catalog, or latest_map.txt pointer is touched.
+            self._saved_path = str(pgm_final)
+            self._saved_yaml_path = str(yaml_final)
+            self._saved_slot = 4
+            return pgm_final, yaml_final
+
         saved_png_bytes = occupancy_grid_png(msg)
         for static_dir in GUI_STATIC_DIRS:
             try:
@@ -1415,8 +1565,6 @@ class MappingWebController(Node):
         pointer_tmp = Path(str(LATEST_POINTER) + '.tmp')
         pointer_tmp.write_text(str(yaml_final.resolve()) + '\n', encoding='utf-8')
         os.replace(pointer_tmp, LATEST_POINTER)
-        # PGM is the primary BAB 4.2 mapping result. YAML is retained only
-        # as ROS map metadata so the same PGM can be loaded by map_server later.
         self._saved_path = str(pgm_final)
         self._saved_yaml_path = str(yaml_final)
         self._saved_slot = slot
@@ -1465,6 +1613,43 @@ class MappingWebController(Node):
             LIVE_MAP_PNG.unlink(missing_ok=True)
             self._reset_mapping_pose_status(False)
 
+
+    def _save_last_service(self, slot, _request, response):
+        if slot not in (1, 2, 3, BUILD_MAP_SESSION_ID):
+            response.success = False
+            response.message = 'Target mapping tidak valid'
+            return response
+        if self._runtime_alive() or self._pending_start_slot:
+            response.success = False
+            response.message = 'STOP mapping terlebih dahulu sebelum SAVE'
+            return response
+        if self._last_stopped_slot != slot:
+            response.success = False
+            response.message = ('Tidak ada snapshot STOP terbaru untuk Build Map' if slot == BUILD_MAP_SESSION_ID else f'Tidak ada snapshot STOP terbaru untuk MAP {slot}')
+            return response
+        self._phase = 'SAVING'
+        try:
+            with self._lock:
+                structure_map = self._latest_map
+            if structure_map is not None:
+                self._update_structure_metrics(structure_map, force=True)
+            pgm_path, yaml_path = self._write_map(slot, allow_stale=True)
+        except Exception as exc:
+            self._phase = 'READY'
+            self._last_error = str(exc)
+            response.success = False
+            response.message = ('SAVE Build Map gagal: ' + str(exc) if slot == BUILD_MAP_SESSION_ID else f'SAVE snapshot MAP {slot} gagal: {exc}')
+            self._publish_status()
+            return response
+        self._last_stopped_slot = 0
+        self._phase = 'READY'
+        self._last_error = ''
+        self._publish_status()
+        response.success = True
+        response.message = (f'Build Map snapshot tersimpan: {pgm_path}; metadata: {yaml_path}' if slot == BUILD_MAP_SESSION_ID else f'MAP {slot} snapshot tersimpan: {pgm_path}; metadata: {yaml_path}')
+        self.get_logger().info(response.message)
+        return response
+
     def _stop_save_service(self, _request, response):
         if not self._runtime_alive() or self._active_slot not in (1, 2, 3):
             response.success = False
@@ -1492,6 +1677,7 @@ class MappingWebController(Node):
         self._stop_process_group()
         resume_errors = self._resume_navigation() if (getattr(self, '_suspended_pids', []) or self._paused_managers or self._deactivated_nav_nodes) else []
         self._active_slot = 0
+        self._last_stopped_slot = 0
         if self._shared_sensor_mode:
             self._phase = 'READY' if not resume_errors else 'READY_WITH_WARNING'
             self._prewarm_due = float('inf')
@@ -1539,6 +1725,7 @@ class MappingWebController(Node):
         self._stop_process_group()
         resume_errors = self._resume_navigation() if (getattr(self, '_suspended_pids', []) or self._paused_managers or self._deactivated_nav_nodes) else []
         self._active_slot = 0
+        self._last_stopped_slot = slot
         if self._shared_sensor_mode:
             self._phase = 'READY' if not resume_errors else 'READY_WITH_WARNING'
             self._prewarm_due = float('inf')
@@ -1546,7 +1733,7 @@ class MappingWebController(Node):
             self._phase = 'READY' if not resume_errors else 'READY_WITH_WARNING'
         self._last_error = '' if not resume_errors else ' | '.join(resume_errors)
         response.success = not resume_errors
-        response.message = f'Mapping MAP {slot} dihentikan tanpa save'
+        response.message = ('Build Map dihentikan tanpa save; snapshot siap SAVE' if slot == BUILD_MAP_SESSION_ID else f'Mapping MAP {slot} dihentikan tanpa save; snapshot siap SAVE')
         if self._shared_sensor_mode:
             response.message += '; Nav2 tetap OFF'
         if resume_errors:
@@ -1627,13 +1814,18 @@ class MappingWebController(Node):
             }
         if active and self._phase == 'STARTING' and map_age is not None and map_age < 2.0:
             self._phase = 'RUNNING'
+        session_mode = ('build_map' if display_slot == BUILD_MAP_SESSION_ID else
+                        ('chapter4' if display_slot in (1, 2, 3) else 'idle'))
+        last_stopped_mode = ('build_map' if self._last_stopped_slot == BUILD_MAP_SESSION_ID else
+                             ('chapter4' if self._last_stopped_slot in (1, 2, 3) else 'idle'))
         payload = {
             'active': active,
-            'slot': display_slot,
+            'mode': session_mode,
+            'slot': display_slot if session_mode == 'chapter4' else 0,
             'phase': self._phase,
             'map_fresh': map_age is not None and map_age < 3.0,
             'map_age_s': None if map_age is None else round(map_age, 3),
-            'map_topic': self._mapping_topic,
+            'map_topic': (self._build_map_topic if session_mode == 'build_map' else self._mapping_topic),
             'map_meta': mapping_meta,
             'map_grid': ({
                 'encoding': 'ufo-rle-hex-v1',
@@ -1649,6 +1841,8 @@ class MappingWebController(Node):
             'saved_pgm': self._saved_path,
             'saved_yaml': self._saved_yaml_path,
             'saved_slot': self._saved_slot,
+            'last_stopped_slot': self._last_stopped_slot if last_stopped_mode == 'chapter4' else 0,
+            'last_stopped_mode': last_stopped_mode,
             'error': self._last_error,
             'pid': self._proc.pid if self._proc is not None and self._proc.poll() is None else 0,
             'engine_ready': bool(self._engine_ready),

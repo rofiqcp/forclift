@@ -119,6 +119,11 @@ const QMap<QString, std::shared_ptr<YamlStore>> &stores) {
   auto *runGroup = newGroup(QStringLiteral("Identitas Run"));
   // Group: Ground Truth
   auto *gtGroup = newGroup(QStringLiteral("Ground Truth"));
+  bool hasCalibration = false;
+  for (const ExperimentParameterField &f : fields)
+    if (f.key.startsWith(QStringLiteral("calib_"))) { hasCalibration = true; break; }
+  QGroupBox *calibGroup = hasCalibration ? newGroup(QStringLiteral("Kalibrasi Konversi")) : nullptr;
+  if (calibGroup) calibGroup->setObjectName(QStringLiteral("calibrationGroup"));
   // Group: Parameter / YAML
   auto *yamlGroup = newGroup(QStringLiteral("Parameter / YAML"));
   for (const ExperimentParameterField &f : fields) {
@@ -129,6 +134,8 @@ const QMap<QString, std::shared_ptr<YamlStore>> &stores) {
     target = runGroup;
     else if (f.key.startsWith(QStringLiteral("gt_")))
     target = gtGroup;
+    else if (calibGroup && f.key.startsWith(QStringLiteral("calib_")))
+    target = calibGroup;
     addField(target, f);
   }
   containerLayout_->addStretch(1);
@@ -188,11 +195,14 @@ void ExperimentParameterPanel::addField(QWidget *group, const ExperimentParamete
   label->setWordWrap(true);
   row->addWidget(label, 1);
   auto *edit = new QLineEdit();
+  const bool calibrationField = f.key.startsWith(QStringLiteral("calib_"));
+  if (calibrationField) label->setObjectName(QStringLiteral("calibrationFieldLabel"));
   if (!f.placeholder.isEmpty()) edit->setPlaceholderText(f.placeholder);
   if (f.kind == QStringLiteral("yaml_readonly") || f.locked) {
     edit->setReadOnly(true);
-    edit->setObjectName(f.locked ? QStringLiteral("lockedParameterField")
-                                 : QStringLiteral("yamlReadonlyField"));
+    edit->setObjectName(calibrationField ? QStringLiteral("calibrationReadonlyField")
+                                         : (f.locked ? QStringLiteral("lockedParameterField")
+                                                     : QStringLiteral("yamlReadonlyField")));
     QString value = f.lockedValue;
     const auto store = stores_.value(f.yamlFileKey);
     if (store && !f.yamlPath.isEmpty()) {
@@ -202,6 +212,7 @@ void ExperimentParameterPanel::addField(QWidget *group, const ExperimentParamete
     if (!value.isEmpty()) edit->setText(value);
     if (f.locked) label->setText(QStringLiteral("LOCKED — %1").arg(f.label));
   } else if (!f.yamlFileKey.isEmpty() && !f.yamlPath.isEmpty()) {
+    if (calibrationField) edit->setObjectName(QStringLiteral("calibrationParameterField"));
     // Parameter tuning editable selalu menampilkan nilai aktual dari YAML source.
     // Dengan demikian operator tidak pernah mulai dari placeholder yang berbeda
     // dari konfigurasi yang benar-benar dipakai autonomous.launch.py.

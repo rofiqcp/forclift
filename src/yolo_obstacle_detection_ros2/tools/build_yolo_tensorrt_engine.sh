@@ -4,7 +4,7 @@ set -euo pipefail
 # Build and benchmark an FP16 TensorRT engine on the TARGET Jetson.
 # Serialized TensorRT engines are deliberately not shipped/cross-copied because
 # compatibility depends on the target TensorRT/CUDA/GPU environment.
-AGV_WS="${AGV_WS:-/home/otomasi2/ros}"
+AGV_WS="${AGV_WS:-/home/otomasi2/forclift}"
 ONNX="${1:-${AGV_WS}/models/yolov8n_agv_forklift.onnx}"
 ENGINE="${2:-${ONNX%.onnx}.engine}"
 

@@ -39,6 +39,7 @@ def _source_config_dir(share_path: str, package_name: str) -> str:
 
 def generate_launch_description():
     nav_share = get_package_share_directory('navigation')
+    workspace = os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or str(Path.home() / 'forclift')
     nav_config_dir = os.environ.get('AGV_CONFIG_DIR', '').strip() or _source_config_dir(
         nav_share, 'navigation')
 
@@ -62,7 +63,7 @@ def generate_launch_description():
     args = [
         DeclareLaunchArgument('start_autonomous', default_value='false'),
         DeclareLaunchArgument('map', default_value='auto'),
-        DeclareLaunchArgument('maps_dir', default_value='/home/otomasi2/ros/maps'),
+        DeclareLaunchArgument('maps_dir', default_value=os.path.join(workspace, 'maps')),
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('enable_nav2', default_value='true'),
         DeclareLaunchArgument('auto_global_localization', default_value='true'),

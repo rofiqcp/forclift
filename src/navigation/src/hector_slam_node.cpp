@@ -50,10 +50,15 @@ HectorSLAMNode::HectorSLAMNode(const rclcpp::NodeOptions & options)
     scan_topic_, scan_qos, std::bind(&HectorSLAMNode::scan_callback, this, std::placeholders::_1));
   // BAB 4.2 pure LiDAR mode must not consume IMU at all.  Create the IMU
   // subscription only when its rotation plausibility gate is explicitly enabled.
-  if (use_imu_rotation_gate_) {
+  if (use_imu_rotation_gate_ || require_imu_for_motion_) {
     imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
       "/imu/data", rclcpp::SensorDataQoS().keep_last(20),
       std::bind(&HectorSLAMNode::imu_callback, this, std::placeholders::_1));
+  }
+  if (use_odom_motion_prior_ || require_odom_prior_for_motion_) {
+    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+      odom_motion_prior_topic_, rclcpp::SensorDataQoS().keep_last(20),
+      std::bind(&HectorSLAMNode::odom_callback, this, std::placeholders::_1));
   }
 
   const double map_period = get_parameter("map_pub_period").as_double();

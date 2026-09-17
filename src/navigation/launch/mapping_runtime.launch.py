@@ -46,7 +46,7 @@ from navigation_runtime.runtime_schema import ensure_runtime_schema
 
 def _runtime_config(package_share: str, package_name: str, filename: str) -> str:
     """Return persistent runtime YAML, seeding it once from package defaults."""
-    ws = os.environ.get("AGV_WS", "/home/otomasi2/ros")
+    ws = (os.environ.get("AGV_ROOT") or os.environ.get("AGV_WS") or os.path.expanduser("~/forclift"))
     base = os.environ.get("AGV_RUNTIME_CONFIG_ROOT", os.path.join(ws, "config", "runtime"))
     target_dir = os.path.join(os.path.expanduser(base), package_name)
     os.makedirs(target_dir, exist_ok=True)
@@ -87,7 +87,7 @@ def generate_launch_description():
     #   3. `pkill -f map.launch` matches the Python script path (which works),
     #      NOT the process argv[0] name. This kills the ros2 launch parent.
     #   4. A stale `/tmp/agv_mapping.pid` file from a crash is also cleaned.
-    #   5. CP210x ttyUSB force-close guards against kernel-level port hang.
+    #   5. Raw ttyUSB nodes are never force-killed; device ownership is process/alias scoped.
     #
     # For the full graceful stop flow (SIGINT -> SIGTERM -> SIGKILL with PGID),
     # use:  ./agv_mapping_control.sh stop
@@ -110,7 +110,6 @@ def generate_launch_description():
              '  pkill -f "rviz2_mapping" 2>/dev/null || true; '
              '  pkill -f "rviz2" 2>/dev/null || true; '  # only rviz2_mapping reaches here
              '  sleep 2; '
-             '  fuser -k -9 /dev/ttyUSB0 /dev/ttyUSB1 2>/dev/null || true; '
              '  rm -f /tmp/agv_mapping.pid; '
              '  echo "[map.launch] Stale session cleared"; '
              'else '
@@ -183,7 +182,7 @@ def generate_launch_description():
         DeclareLaunchArgument('imu_baudrate', default_value='921600'),
         DeclareLaunchArgument('imu_frame_id', default_value='imu_link'),
         DeclareLaunchArgument('enable_esc', default_value='true'),
-        DeclareLaunchArgument('esc_port', default_value='/dev/esc'),
+        DeclareLaunchArgument('esc_port', default_value='/dev/vesc_drive'),
         DeclareLaunchArgument('enable_keyboard', default_value='true'),
         DeclareLaunchArgument('enable_joystick', default_value='false'),
         DeclareLaunchArgument(
@@ -377,7 +376,7 @@ def generate_launch_description():
             os.path.join(esc_share, 'launch', 'esc.launch.py')),
         condition=IfCondition(LaunchConfiguration('enable_esc')),
         launch_arguments={
-            'profile': 'ackermann_1_board.yaml',
+            'profile': 'ackermann_dual_vesc.yaml',
             'board0_port': LaunchConfiguration('esc_port'),
             'use_sim_time': use_sim_time,
             'enable_keyboard': LaunchConfiguration('enable_keyboard'),

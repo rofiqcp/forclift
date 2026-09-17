@@ -24,7 +24,7 @@ class GeometryError(RuntimeError):
 
 
 def runtime_root() -> Path:
-    ws = Path(os.path.expanduser(os.environ.get("AGV_WS", "/home/otomasi2/ros")))
+    ws = Path(os.path.expanduser((os.environ.get("AGV_ROOT") or os.environ.get("AGV_WS") or str(Path.home() / "forclift"))))
     root = Path(os.path.expanduser(os.environ.get("AGV_RUNTIME_CONFIG_ROOT", str(ws / "config" / "runtime"))))
     return root
 

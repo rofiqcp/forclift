@@ -18,7 +18,7 @@ COMPACT_COST_SCALING_FACTOR = 12.0
 
 
 def _runtime_nav_dir() -> Path:
-    ws = Path(os.environ.get('AGV_WS', '/home/otomasi2/ros')).expanduser()
+    ws = Path((os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or str(Path.home() / 'forclift'))).expanduser()
     root = Path(os.environ.get('AGV_RUNTIME_CONFIG_ROOT', str(ws / 'config' / 'runtime'))).expanduser()
     path = root / 'navigation'
     path.mkdir(parents=True, exist_ok=True)
@@ -59,11 +59,11 @@ def ensure_stage5_planning_runtime(package_share: str) -> Path:
     static = g.setdefault('static_layer', {})
     static['plugin'] = 'nav2_costmap_2d::StaticLayer'
     static['enabled'] = True
-    # /map is activated by the same lifecycle milestone used by AMCL and is
-    # therefore the only safe canonical source for the production global
-    # costmap.  Do not let an older persistent /nav_map override reintroduce a
-    # startup deadlock.
-    static['map_topic'] = '/map'
+    # Raw /map is reserved for AMCL. Global planning must follow the
+    # planning-only /nav_map, which is prepared and lifecycle-managed together
+    # with nav_map_server before PlannerServer is activated. This keeps the
+    # global costmap synchronized with the map selected in Navigation Map.
+    static['map_topic'] = '/nav_map'
     static['map_subscribe_transient_local'] = True
     static['subscribe_to_updates'] = False
     obstacle = g.setdefault('obstacle_layer', {})

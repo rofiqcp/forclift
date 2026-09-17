@@ -54,6 +54,7 @@ private:
   // Callbacks
   void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg);
   void imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg);
+  void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void publish_map_callback();
   void publish_pose_tf_callback();
   void publish_trajectory_callback();
@@ -62,7 +63,8 @@ private:
   // Core SLAM
   std::vector<ScanPoint> scan_to_points(const sensor_msgs::msg::LaserScan & msg);
   bool detect_motion(const std::vector<ScanPoint> & prev, const std::vector<ScanPoint> & curr);
-  std::optional<Pose2D> multi_res_match(const std::vector<ScanPoint> & scan_points);
+  std::optional<Pose2D> multi_res_match(
+    const std::vector<ScanPoint> & scan_points, double prior_dx = 0.0, double prior_dy = 0.0);
   double compute_map_score(const std::vector<ScanPoint> & scan_points, double dx, double dy, double dtheta);
   std::tuple<double, double, double> search_level(
     const std::vector<ScanPoint> & scan_points,
@@ -86,6 +88,7 @@ private:
   // ROS interfaces
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr map_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr traj_pub_;
@@ -192,6 +195,18 @@ private:
   rclcpp::Time last_imu_stamp_{0, 0, RCL_ROS_TIME};
   bool imu_received_{false};
   int imu_rotation_reject_count_{0};
+
+  // Optional longitudinal wheel-odometry motion prior for sensor mode 3.
+  // It centers the LiDAR scan-match search window; it never owns map pose/TF.
+  bool use_odom_motion_prior_{false};
+  bool require_imu_for_motion_{false};
+  bool require_odom_prior_for_motion_{false};
+  std::string odom_motion_prior_topic_{"/esc/odom"};
+  double odom_motion_prior_timeout_{0.30};
+  double odom_motion_prior_scale_{1.0};
+  double last_odom_vx_{0.0};
+  rclcpp::Time last_odom_stamp_{0, 0, RCL_ROS_TIME};
+  bool odom_received_{false};
 
   // Drift reduction state
   int stationary_counter_{0};

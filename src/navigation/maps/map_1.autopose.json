@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "map_yaml": "/home/otomasi2/ros/src/navigation/maps/map_1.yaml",
-  "map_image": "/home/otomasi2/ros/src/navigation/maps/map_1.pgm",
+  "map_yaml": "/home/otomasi2/forclift/src/navigation/maps/map_1.yaml",
+  "map_image": "/home/otomasi2/forclift/src/navigation/maps/map_1.pgm",
   "map_sha256": "ef15a906936cde48dffaf8afdc4232eca776eb8586e32322e0931890c61a3f5d",
   "frame_id": "map",
   "child_frame_id": "base_footprint",

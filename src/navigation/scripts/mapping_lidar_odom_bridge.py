@@ -22,9 +22,12 @@ class MappingLidarOnlyGate(Node):
         super().__init__('mapping_lidar_odom_bridge')
         self.declare_parameter('source_scan_topic', '/mapping/scan_filtered')
         self.declare_parameter('output_scan_topic', '/mapping/scan_nav')
+        self.declare_parameter('session_control_enabled', True)
+        self.declare_parameter('initial_session_enabled', False)
         self.source_scan = str(self.get_parameter('source_scan_topic').value)
         self.output_scan = str(self.get_parameter('output_scan_topic').value)
-        self.session_enabled = False
+        self.session_control_enabled = bool(self.get_parameter('session_control_enabled').value)
+        self.session_enabled = bool(self.get_parameter('initial_session_enabled').value)
         self.scans = 0
         self.last_scan_wall = 0.0
         self.rate_hz = 0.0
@@ -40,11 +43,12 @@ class MappingLidarOnlyGate(Node):
         self.scan_pub = self.create_publisher(LaserScan, self.output_scan, scan_qos)
         self.status_pub = self.create_publisher(String, '/mapping/odom_status', 10)
         self.create_subscription(LaserScan, self.source_scan, self._scan_cb, scan_qos)
-        self.create_subscription(Bool, '/mapping/session_enabled', self._session_cb, session_qos)
+        if self.session_control_enabled:
+            self.create_subscription(Bool, '/mapping/session_enabled', self._session_cb, session_qos)
         self.create_timer(0.5, self._publish_status)
         self.get_logger().info(
             f'Mapping gate READY LiDAR ONLY: {self.source_scan} -> {self.output_scan}; '
-            'odometry=false imu=false')
+            f'odometry=false imu=false session_control={self.session_control_enabled} initial={self.session_enabled}')
 
     def _session_cb(self, msg):
         enabled = bool(msg.data)

@@ -10,6 +10,16 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+# ROS 2 Humble on the Jetson is Python 3.10. Build agents may prepend their
+# own Python (for example 3.11) to PATH; never let that leak into the installed
+# navigation_runtime package path.
+if(EXISTS "/usr/bin/python3")
+  set(Python3_EXECUTABLE "/usr/bin/python3" CACHE FILEPATH "ROS system Python" FORCE)
+endif()
+find_package(Python3 3.10 EXACT REQUIRED COMPONENTS Interpreter)
+set(PYTHON_INSTALL_DIR
+    "lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages"
+    CACHE INTERNAL "Python package install directory" FORCE)
 find_package(ament_index_cpp REQUIRED)
 find_package(action_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
@@ -78,11 +88,13 @@ add_executable(agv_gui_cpp src/agv_gui.cpp)
 ament_target_dependencies(
   agv_gui_cpp rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs tf2 tf2_ros yolo_obstacle_detection_ros2)
 target_link_libraries(agv_gui_cpp Qt5::Core Qt5::Gui Qt5::Widgets)
+target_compile_options(agv_gui_cpp PRIVATE -O0)  # Jetson memory guard for large desktop GUI TU
 
 add_executable(mapping_gui_cpp src/mapping_gui.cpp)
 ament_target_dependencies(
   mapping_gui_cpp rclcpp sensor_msgs nav_msgs geometry_msgs std_srvs tf2 tf2_ros)
 target_link_libraries(mapping_gui_cpp Qt5::Core Qt5::Gui Qt5::Widgets)
+target_compile_options(mapping_gui_cpp PRIVATE -O0)  # Jetson memory guard for large desktop GUI TU
 
 # GUI master native C++/Qt. Target lama tetap dipertahankan agar tidak mengubah
 # runtime selain GUI yang dipanggil oleh gui.launch.py.
@@ -94,7 +106,7 @@ ament_target_dependencies(
   rclcpp rcl_interfaces action_msgs sensor_msgs std_msgs builtin_interfaces
   geometry_msgs nav_msgs std_srvs ament_index_cpp yolo_obstacle_detection_ros2)
 target_link_libraries(agv_gui Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Network yaml-cpp)
-target_compile_options(agv_gui PRIVATE -Wno-psabi)
+target_compile_options(agv_gui PRIVATE -Wno-psabi -O0)  # Jetson memory guard for large desktop GUI TU
 
 
 # Browser operator console. Backend native C++/rclcpp + Qt Network; frontend
@@ -107,7 +119,7 @@ ament_target_dependencies(
   rclcpp rcl_interfaces action_msgs sensor_msgs std_msgs geometry_msgs nav_msgs visualization_msgs
   std_srvs ament_index_cpp yolo_obstacle_detection_ros2)
 target_link_libraries(agv_web_gui Qt5::Core Qt5::Gui Qt5::Network yaml-cpp)
-target_compile_options(agv_web_gui PRIVATE -Wno-psabi)
+target_compile_options(agv_web_gui PRIVATE -Wno-psabi -O0)  # keep Jetson build memory bounded for large web_server.cpp
 
 install(
   TARGETS
@@ -134,6 +146,7 @@ install(PROGRAMS
   scripts/lidar_motor_off.py
   scripts/mapping_web_controller.py
   scripts/mapping_lidar_odom_bridge.py
+  scripts/sensor_mode_manager.py
   scripts/nav_map_switch_controller.py
   scripts/autonomous_sensor_preflight.sh
   scripts/perception_preflight.sh
@@ -153,6 +166,8 @@ install(PROGRAMS
   scripts/gui_odom_alias.py
   scripts/initialpose_stamp_relay.py
   scripts/prepare_nav_map.py
+  scripts/mission_cmd_selector.py
+  scripts/mission_fsm_controller.py
   tools/rviz_robot_model_ready_gate.py
   tools/install_workspace_env.sh
   tools/rebuild_navigation_clean.sh
@@ -231,9 +246,14 @@ install(FILES
   V56_ACTIVE.txt V58_ACTIVE.txt
   DESTINATION share/${PROJECT_NAME})
 
-install(DIRECTORY launch config rviz urdf meshes maps behavior_trees DESTINATION share/${PROJECT_NAME})
-install(DIRECTORY gui/assets DESTINATION share/${PROJECT_NAME}/gui)
-install(DIRECTORY web/static DESTINATION share/${PROJECT_NAME}/web)
+install(DIRECTORY launch config rviz urdf meshes maps behavior_trees DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
+  PATTERN "*.bak*" EXCLUDE)
+install(DIRECTORY gui/assets DESTINATION share/${PROJECT_NAME}/gui
+  PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE PATTERN "*.bak*" EXCLUDE)
+install(DIRECTORY web/static DESTINATION share/${PROJECT_NAME}/web
+  PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE PATTERN "*.bak*" EXCLUDE)
 install(DIRECTORY docs tools DESTINATION share/${PROJECT_NAME}
   PATTERN "__pycache__" EXCLUDE
   PATTERN "*.pyc" EXCLUDE)

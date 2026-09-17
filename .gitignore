@@ -63,3 +63,9 @@ node_modules/
 # Top-level transient snapshots
 /.backup_*/
 /.ros_sync_backup/
+build_navfix/
+.backup_mission_fsm_20260917_011313/
+.backup_forclift_runtime_paths_20260917_014556/
+log_navfix/
+install_navfix/
+trash/

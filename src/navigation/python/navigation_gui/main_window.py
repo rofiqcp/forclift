@@ -49,7 +49,7 @@ from .ros_proxy import RosBridgeProxy
 from .widgets import ScrollSettings, SectionFrame, YamlParameterEditor
 
 
-WORKSPACE = Path("/home/otomasi2/ros")
+WORKSPACE = Path(os.environ.get('AGV_ROOT') or os.environ.get('AGV_WS') or (Path.home() / 'forclift')).expanduser()
 NAV_SRC = WORKSPACE / "src" / "navigation"
 ESC_SRC = WORKSPACE / "src" / "esc"
 YOLO_SRC = WORKSPACE / "src" / "yolo_obstacle_detection_ros2"
@@ -408,7 +408,7 @@ class AutonomousVehicleWindow(QMainWindow):
 
         reports = SimpleInfoPage(
             "Reports / Export",
-            "Manual plots are exported under /home/otomasi2/ros/log/agv_gui/manual_exports. "
+            "Manual plots are exported under /home/otomasi2/forclift/log/agv_gui/manual_exports. "
             "Experiment sessions contain metadata.yaml, configuration snapshots, CSV, plots, and screenshots. "
             "Map Comparison can export its metric table directly to CSV.")
         self._add_page("Reports / Export", "RP", reports.settings, reports.content, "DATA")

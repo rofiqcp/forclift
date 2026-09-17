@@ -98,7 +98,7 @@ The Astra camera timestamp path was also hardened:
 ## Required Jetson validation
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 colcon build --symlink-install --packages-select navigation esc yolo_obstacle_detection_ros2
 source install/setup.bash
 

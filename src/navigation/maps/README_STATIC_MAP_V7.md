@@ -4,7 +4,7 @@ Default launch:
 `ros2 launch navigation autonomous.launch.py`
 
 Default map:
-`/home/otomasi2/ros/src/navigation/maps/map_20260819_003151.yaml`
+`/home/otomasi2/forclift/src/navigation/maps/map_20260819_003151.yaml`
 
 Map:
 - 125 x 123 cells

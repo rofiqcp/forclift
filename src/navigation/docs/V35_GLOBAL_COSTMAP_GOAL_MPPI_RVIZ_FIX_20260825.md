@@ -40,10 +40,10 @@ launch graph; the real Jetson run remains the authoritative runtime proof.
 ## Clean deployment
 
 ```bash
-cd /home/otomasi2/ros
-bash src/navigation/tools/rebuild_navigation_clean.sh /home/otomasi2/ros
+cd /home/otomasi2/forclift
+bash src/navigation/tools/rebuild_navigation_clean.sh /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
-source /home/otomasi2/ros/install/setup.bash
+source /home/otomasi2/forclift/install/setup.bash
 python3 src/navigation/tools/verify_v35_global_goal_mppi.py
 ros2 launch navigation autonomous.launch.py map:=auto
 ```

@@ -316,7 +316,7 @@ global_costmap:
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         enabled: true
-        map_topic: /map
+        map_topic: /nav_map
         map_subscribe_transient_local: true
         subscribe_to_updates: false
       obstacle_layer:

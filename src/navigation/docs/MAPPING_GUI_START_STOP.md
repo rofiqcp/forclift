@@ -9,7 +9,7 @@ LiDAR and IMU remain closed until **START** is pressed.
 
 The Mapping GUI now manages exactly three SLAM experiment slots under:
 
-`/home/otomasi2/ros/src/navigation/maps`
+`/home/otomasi2/forclift/src/navigation/maps`
 
 Managed map pairs:
 
@@ -33,7 +33,7 @@ On **STOP + SAVE MAP**:
 
 1. `/map` is saved first into the active slot.
 2. The YAML + image pair is verified and allowed to stabilize.
-3. `/home/otomasi2/ros/maps/latest_map.txt` is atomically updated to point to the newly committed slot YAML.
+3. `/home/otomasi2/forclift/maps/latest_map.txt` is atomically updated to point to the newly committed slot YAML.
 4. Only after commit is SIGINT sent to the runtime process group.
 5. `lidar_node` stops the LiDAR motor and closes the serial port.
 6. IMU exits and closes its serial port.

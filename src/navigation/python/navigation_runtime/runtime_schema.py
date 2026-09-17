@@ -27,7 +27,7 @@ SCHEMA_VERSION = 1
 
 
 def _root() -> Path:
-    ws = Path(os.environ.get("AGV_WS", "/home/otomasi2/ros")).expanduser()
+    ws = Path((os.environ.get("AGV_ROOT") or os.environ.get("AGV_WS") or str(Path.home() / "forclift"))).expanduser()
     return Path(os.environ.get("AGV_RUNTIME_CONFIG_ROOT", str(ws / "config" / "runtime"))).expanduser()
 
 
@@ -72,6 +72,7 @@ def _seed_package(share: Path, package: str, files: Mapping[str, Any]) -> Path:
         src = share / "config" / name
         dst = target / name
         if not dst.exists() and src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
     return target
 

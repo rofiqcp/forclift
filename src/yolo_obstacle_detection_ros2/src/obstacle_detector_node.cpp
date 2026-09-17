@@ -157,7 +157,7 @@ public:
     explicit ObstacleDetectorNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
         : Node("obstacle_detector_node", options) {
         // ── Declare parameters ──────────────────────────────────────────────
-        declare_parameter("model_path",    std::string("/home/otomasi2/ros/models/yolov8n_agv_forklift.onnx"));
+        declare_parameter("model_path",    std::string("/home/otomasi2/forclift/models/yolov8n_agv_forklift.onnx"));
         declare_parameter("engine_path",   std::string(""));
         declare_parameter("confidence_threshold", 0.5);
         declare_parameter("iou_threshold",        0.45);

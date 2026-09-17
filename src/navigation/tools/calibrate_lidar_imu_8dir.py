@@ -317,7 +317,7 @@ def main():
     args = ap.parse_args()
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    outdir = args.out or f"/home/otomasi2/ros/log/calibration_imu_lidar_8dir_{stamp}"
+    outdir = args.out or f"/home/otomasi2/forclift/log/calibration_imu_lidar_8dir_{stamp}"
     os.makedirs(outdir, exist_ok=True)
 
     rclpy.init()

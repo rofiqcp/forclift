@@ -71,7 +71,7 @@ PART 2 tidak mengubah algoritma core odometry/TF/Nav2 PART 1. Fokusnya adalah me
 ## Runtime workflow yang disarankan
 
 ```bash
-export AGV_WS=/home/otomasi2/ros
+export AGV_WS=/home/otomasi2/forclift
 export AGV_RUNTIME_CONFIG_ROOT=$AGV_WS/config/runtime
 cd $AGV_WS
 colcon build --symlink-install --packages-select navigation esc yolo_obstacle_detection_ros2

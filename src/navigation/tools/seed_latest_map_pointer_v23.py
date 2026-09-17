@@ -3,7 +3,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import os, re, sys
 
-MAP_DIR = Path('/home/otomasi2/ros/maps')
+MAP_DIR = Path('/home/otomasi2/forclift/maps')
 POINTER = MAP_DIR / 'latest_map.txt'
 
 

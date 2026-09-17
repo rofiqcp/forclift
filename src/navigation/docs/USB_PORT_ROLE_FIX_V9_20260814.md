@@ -44,9 +44,9 @@ The alias points to the persistent udev alias, not directly to `ttyUSBX` or `vid
 ## Mapping run
 
 ```bash
-mkdir -p /home/otomasi2/ros/log
+mkdir -p /home/otomasi2/forclift/log
 ros2 launch navigation map.launch.py 2>&1 | \
-  tee "/home/otomasi2/ros/log/$(date +%Y%m%d_%H%M%S).txt"
+  tee "/home/otomasi2/forclift/log/$(date +%Y%m%d_%H%M%S).txt"
 ```
 
 `map.launch.py` now defaults to LiDAR + IMU + Astra camera, with YOLO disabled for port validation.
@@ -58,7 +58,7 @@ The current autonomous launch still uses a saved map argument for Nav2 localizat
 ```bash
 ros2 launch navigation autonomous.launch.py \
   map:=/ABSOLUTE/PATH/TO/map.yaml 2>&1 | \
-  tee "/home/otomasi2/ros/log/$(date +%Y%m%d_%H%M%S).txt"
+  tee "/home/otomasi2/forclift/log/$(date +%Y%m%d_%H%M%S).txt"
 ```
 
 The missing-map exception seen in the uploaded log is independent of USB port arbitration.

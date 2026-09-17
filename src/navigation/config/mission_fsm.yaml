@@ -1,0 +1,14 @@
+mission_fsm:
+  ros__parameters:
+    # Fail-closed commissioning lock. Set true only after physical speed validation.
+    allow_timed_motion: false
+    forward_speed_mps: 0.0
+    reverse_speed_mps: 0.0
+    forward_duration_sec: 5.0
+    lift_up_duration_sec: 5.0
+    lift_down_duration_sec: 5.0
+    reverse_duration_sec: 5.0
+    camera_timeout_sec: 20.0
+    alignment_hold_sec: 0.5
+    goal_timeout_sec: 120.0
+    publish_rate_hz: 20.0

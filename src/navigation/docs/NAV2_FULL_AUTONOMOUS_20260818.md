@@ -6,7 +6,7 @@ Run:
 ros2 launch navigation autonomous.launch.py map:=/absolute/path/to/map.yaml
 ```
 
-`map:=auto` or the historical literal `/path/to/map.yaml` selects the newest YAML in `/home/otomasi2/ros/src/navigation/maps`.
+`map:=auto` or the historical literal `/path/to/map.yaml` selects the newest YAML in `/home/otomasi2/forclift/src/navigation/maps`.
 
 Active stack:
 

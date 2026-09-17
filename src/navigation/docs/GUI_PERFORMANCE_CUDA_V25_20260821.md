@@ -43,7 +43,7 @@ YOLO uses TensorRT FP16 when a valid engine is available; otherwise OpenCV DNN C
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/otomasi2/ros/install/setup.bash
+source /home/otomasi2/forclift/install/setup.bash
 ros2 run navigation verify_gui_cuda_v25.py
 ```
 

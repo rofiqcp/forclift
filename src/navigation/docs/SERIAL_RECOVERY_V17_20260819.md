@@ -43,7 +43,7 @@ same EIO on both bridges.
 Run once from the workspace source after applying V17:
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 bash src/navigation/tools/install_sensor_recovery.sh
 ```
 
@@ -66,7 +66,7 @@ manual unplug/replug workflow.
 ## Build
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
 colcon build --packages-select navigation esc --symlink-install
 source install/setup.bash

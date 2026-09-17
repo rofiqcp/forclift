@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-WS="${1:-/home/otomasi2/ros}"
+WS="${1:-/home/otomasi2/forclift}"
 SRC="${WS}/src/navigation"
 LOG_DIR="${WS}/log"
 LOG_FILE="${LOG_DIR}/navigation_rebuild.log"
@@ -18,6 +18,11 @@ command -v colcon >/dev/null 2>&1 || fail "colcon not found"
 
 mkdir -p "${LOG_DIR}"
 cd "${WS}"
+
+# Jetson Orin Nano memory guard: keep navigation compilation single-threaded.
+# This avoids swap thrashing / OOM and makes clean rebuilds deterministic.
+export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-1}"
+export MAKEFLAGS="${MAKEFLAGS:--j1}"
 
 # Start from the ROS base underlay only.  Do not inherit a partially-built
 # workspace overlay that may contain esc/yolo but not navigation.
@@ -40,6 +45,7 @@ set +e
 colcon build \
   --packages-select navigation \
   --symlink-install \
+  --parallel-workers 1 \
   --cmake-clean-cache \
   --cmake-args \
     -DBUILD_TESTING=OFF \

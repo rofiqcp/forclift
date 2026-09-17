@@ -5,7 +5,7 @@ video:
   display: false
   save_output_video: false
   save_csv: true
-  output_dir: /home/otomasi2/ros/log/a2_alignment_validation
+  output_dir: /home/otomasi2/forclift/log/a2_alignment_validation
   video_extension: .mp4
 setpoint:
   # Target box on the 1280x720 camera display. The selected CENTER block must
@@ -47,7 +47,7 @@ yaw:
   # Fork visibility is not required; setpoint_yaw_offset_deg is the fixed
   # camera-to-fork angular reference.
   method: hole_pair_perspective
-  setpoint_yaw_offset_deg: 0.0
+  setpoint_yaw_offset_deg: 5.0
   geometry_sign: 1.0
   minimum_hole_box_px: 8.0
   depth_ratio_min: 0.60

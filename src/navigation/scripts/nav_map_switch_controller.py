@@ -30,14 +30,17 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 from sensor_msgs.msg import LaserScan
 from lifecycle_msgs.msg import Transition, TransitionEvent
 from lifecycle_msgs.srv import ChangeState, GetState
-from nav2_msgs.srv import LoadMap, ManageLifecycleNodes
-from rcl_interfaces.srv import GetParameters
-from std_msgs.msg import String
+from nav2_msgs.srv import ClearEntireCostmap, LoadMap, ManageLifecycleNodes
+from std_msgs.msg import Bool, String
 from std_srvs.srv import Empty, Trigger
 from tf2_ros import Buffer, TransformListener
 
-WORKSPACE = Path('/home/otomasi2/ros')
+WORKSPACE = Path(os.environ.get('AGV_WS') or os.environ.get('AGV_ROOT') or '/home/otomasi2/forclift')
 MAP_DIR = WORKSPACE / 'src/navigation/maps'
+BUILD_MAP_DIR = MAP_DIR / 'build_map'
+SELECTED_NAV_YAML = MAP_DIR / 'navigation_selected.yaml'
+SELECTED_NAV_PGM = MAP_DIR / 'navigation_selected.pgm'
+SELECTED_NAV_NAME = MAP_DIR / 'navigation_selected_name.txt'
 PREP_SCRIPT = WORKSPACE / 'install/navigation/lib/navigation/prepare_nav_map.py'
 SWITCH_NAVMAP_ROOT = Path('/tmp/navigation_nav_switch')
 
@@ -68,6 +71,8 @@ class NavMapSwitchController(Node):
         self._message = ''
         self._active_slot = 0
         self._requested_slot = 0
+        self._active_map_name = ''
+        self._requested_map_name = ''
         self._nav_enabled = False
         self._loaded_yaml = ''
         self._planning_yaml = ''
@@ -77,6 +82,11 @@ class NavMapSwitchController(Node):
         self._localization_epoch = 0.0
         self._samples = deque(maxlen=20)
         self._live_map_slot = 0
+        self._raw_grid_signature = None
+        self._nav_grid_signature = None
+        self._raw_grid_mono = 0.0
+        self._nav_grid_mono = 0.0
+        self._map_signature_cache = {}
         # Runtime health timestamps are additive only: they prevent a transient
         # zero-wait TF cache miss from being misreported as AMCL recovery.
         self._last_scan_mono = 0.0
@@ -88,7 +98,7 @@ class NavMapSwitchController(Node):
         # Bounded switch phases: known map-bound poses should converge quickly;
         # global localization gets a longer window but never leaves SWITCHING forever.
         self.declare_parameter('known_pose_localization_timeout_sec', 30.0)
-        self.declare_parameter('global_localization_timeout_sec', 60.0)
+        self.declare_parameter('global_localization_timeout_sec', 180.0)
         self.declare_parameter('post_activation_tf_timeout_sec', 20.0)
         self.declare_parameter('manager_rpc_attempt_timeout_sec', 4.0)
         self.declare_parameter('manager_rpc_retries', 2)
@@ -118,13 +128,21 @@ class NavMapSwitchController(Node):
         self._nomotion_keepalive_future = None
 
         self._status_pub = self.create_publisher(String, '/navigation/map_switch_status', 10)
+        readiness_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST, depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        # Single ROS authority for Mission FSM/Nav2 readiness. This mirrors the
+        # same map+AMCL validation used in map_switch_status, not GUI state.
+        self._nav2_ready_pub = self.create_publisher(
+            Bool, '/system/nav2_ready', readiness_qos)
         initialpose_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST, depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._initialpose_pub = self.create_publisher(
             PoseWithCovarianceStamped, '/initialpose', initialpose_qos)
-        for slot in (1, 2, 3, 4):
+        for slot in (1, 2, 3, 4, 5):
             self.create_service(
                 Trigger, f'/navigation/map/start_{slot}',
                 lambda req, resp, s=slot: self._start_service(s, req, resp))
@@ -147,17 +165,28 @@ class NavMapSwitchController(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(OccupancyGrid, '/map', self._map_identity_cb, map_qos)
+        self.create_subscription(OccupancyGrid, '/nav_map', self._nav_map_cb, map_qos)
 
         self._load_raw = self.create_client(LoadMap, '/map_server/load_map')
         self._load_nav = self.create_client(LoadMap, '/nav_map_server/load_map')
+        self._clear_global_costmap = self.create_client(
+            ClearEntireCostmap, '/global_costmap/clear_entirely_global_costmap')
+        self._clear_local_costmap = self.create_client(
+            ClearEntireCostmap, '/local_costmap/clear_entirely_local_costmap')
         self._global_localization = self.create_client(Empty, '/reinitialize_global_localization')
         # AMCL creates this as a private service under the node name.
         self._nomotion = self.create_client(Empty, '/request_nomotion_update')
         self._cancel = self.create_client(CancelGoal, '/navigate_to_pose/_action/cancel_goal')
-        self._map_params = self.create_client(GetParameters, '/map_server/get_parameters')
         self._state_clients = {}
         self._transition_clients = {}
         self._lifecycle_state_cache = {}
+        self._lifecycle_state_cache_at = {}
+        self._core_nav_state_snapshot = {
+            'planner_server': 'unknown',
+            'controller_server': 'unknown',
+            'bt_navigator': 'unknown',
+        }
+        self._core_nav_state_checked_mono = 0.0
         self._manager_clients = {}
         for manager, _nodes in NAV_MANAGERS.values():
             self._manager_clients[manager] = self.create_client(
@@ -168,7 +197,8 @@ class NavMapSwitchController(Node):
             history=HistoryPolicy.KEEP_LAST, depth=10,
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE)
-        lifecycle_nodes = ('amcl', 'planner_server', 'controller_server',
+        lifecycle_nodes = ('map_server', 'nav_map_server', 'amcl',
+                           'planner_server', 'controller_server',
                            'behavior_server', 'bt_navigator',
                            'velocity_smoother', 'collision_monitor')
         for lifecycle_name in lifecycle_nodes:
@@ -200,6 +230,7 @@ class NavMapSwitchController(Node):
             label = str(msg.goal_state.label).strip().lower()
             if label:
                 self._lifecycle_state_cache[node_name] = label
+                self._lifecycle_state_cache_at[node_name] = time.monotonic()
         except Exception:
             pass
 
@@ -260,52 +291,230 @@ class NavMapSwitchController(Node):
                 tokens.extend(line.split())
             return (int(tokens[0]), int(tokens[1])) if len(tokens) >= 2 else (0, 0)
 
-    def _saved_signature(self, slot):
-        try:
-            yaml_path = self._slot_yaml(slot)
-            pgm_path = MAP_DIR / f'map_{int(slot)}.pgm'
-            text = yaml_path.read_text(encoding='utf-8', errors='replace')
-            resolution = float(re.search(r'^\s*resolution\s*:\s*([-+0-9.eE]+)', text, re.M).group(1))
-            origin_match = re.search(r'^\s*origin\s*:\s*\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)', text, re.M)
-            ox, oy = float(origin_match.group(1)), float(origin_match.group(2))
-            width, height = self._pgm_size(pgm_path)
-            return width, height, resolution, ox, oy
-        except Exception:
-            return None
+    def _slot_label(self, slot):
+        slot = int(slot)
+        if slot == 4:
+            return 'Navigation Map (Default)'
+        if slot == 5:
+            try:
+                name = SELECTED_NAV_NAME.read_text(encoding='utf-8').strip()
+            except OSError:
+                name = ''
+            return name or 'Build Map'
+        return f'Map {slot}'
+
+    def _slot_pgm(self, slot):
+        slot = int(slot)
+        if slot == 4:
+            return MAP_DIR / 'map_Navigation.pgm'
+        if slot == 5:
+            return SELECTED_NAV_PGM
+        return MAP_DIR / f'map_{slot}.pgm'
+
+    def _sidecar_path(self, slot):
+        slot = int(slot)
+        if slot == 5:
+            name = self._slot_label(slot)
+            safe = re.sub(r'[^A-Za-z0-9_-]+', '_', name).strip('_')[:64] or 'build_map'
+            BUILD_MAP_DIR.mkdir(parents=True, exist_ok=True)
+            return BUILD_MAP_DIR / f'{safe}.autopose.json'
+        return MAP_DIR / f'map_{slot}.autopose.json'
+
+    @staticmethod
+    def _read_pgm(path):
+        data = Path(path).read_bytes()
+        index = 0
+        size = len(data)
+
+        def token():
+            nonlocal index
+            while index < size:
+                if data[index] == 35:  # # comment
+                    while index < size and data[index] not in (10, 13):
+                        index += 1
+                elif chr(data[index]).isspace():
+                    index += 1
+                else:
+                    break
+            start = index
+            while index < size and not chr(data[index]).isspace() and data[index] != 35:
+                index += 1
+            return data[start:index]
+
+        magic = token()
+        width = int(token())
+        height = int(token())
+        max_value = int(token())
+        if width <= 0 or height <= 0 or max_value <= 0 or max_value > 255:
+            raise RuntimeError(f'PGM header tidak valid: {path}')
+        if magic == b'P5':
+            if index < size and data[index] == 13:
+                index += 1
+                if index < size and data[index] == 10:
+                    index += 1
+            elif index < size and chr(data[index]).isspace():
+                index += 1
+            pixels = data[index:index + width * height]
+            if len(pixels) != width * height:
+                raise RuntimeError(f'PGM payload tidak lengkap: {path}')
+            return width, height, max_value, pixels
+        if magic == b'P2':
+            values = []
+            for _ in range(width * height):
+                values.append(int(token()))
+            return width, height, max_value, bytes(values)
+        raise RuntimeError(f'PGM format tidak didukung: {magic!r}')
+
+    def _grid_signature_from_yaml(self, yaml_path):
+        yaml_path = Path(yaml_path).expanduser().resolve()
+        text = yaml_path.read_text(encoding='utf-8', errors='replace')
+        image_match = re.search(r'^\s*image\s*:\s*(.+?)\s*$', text, re.M)
+        resolution_match = re.search(r'^\s*resolution\s*:\s*([-+0-9.eE]+)', text, re.M)
+        origin_match = re.search(
+            r'^\s*origin\s*:\s*\[\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)\s*,\s*([-+0-9.eE]+)',
+            text, re.M)
+        occupied_match = re.search(r'^\s*occupied_thresh\s*:\s*([-+0-9.eE]+)', text, re.M)
+        free_match = re.search(r'^\s*free_thresh\s*:\s*([-+0-9.eE]+)', text, re.M)
+        negate_match = re.search(r'^\s*negate\s*:\s*(\d+)', text, re.M)
+        mode_match = re.search(r'^\s*mode\s*:\s*(\w+)', text, re.M)
+        if not all((image_match, resolution_match, origin_match, occupied_match, free_match, negate_match)):
+            raise RuntimeError(f'YAML map tidak lengkap untuk verifikasi grid: {yaml_path}')
+        mode = mode_match.group(1).strip().lower() if mode_match else 'trinary'
+        if mode != 'trinary':
+            raise RuntimeError(f'Verifikasi switch hanya mendukung mode trinary, ditemukan {mode}: {yaml_path}')
+        image_value = image_match.group(1).strip().strip('\"\'')
+        image_path = Path(image_value)
+        if not image_path.is_absolute():
+            image_path = (yaml_path.parent / image_path).resolve()
+        cache_key = (str(yaml_path), yaml_path.stat().st_mtime_ns, yaml_path.stat().st_size,
+                     str(image_path), image_path.stat().st_mtime_ns, image_path.stat().st_size)
+        cached = self._map_signature_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        width, height, max_value, pixels = self._read_pgm(image_path)
+        occupied_thresh = float(occupied_match.group(1))
+        free_thresh = float(free_match.group(1))
+        negate = int(negate_match.group(1)) != 0
+        grid = bytearray(width * height)
+        out = 0
+        # nav2_map_server flips image rows into OccupancyGrid map coordinates.
+        for row in range(height - 1, -1, -1):
+            base = row * width
+            for column in range(width):
+                value = pixels[base + column]
+                occupancy = (value / max_value) if negate else (1.0 - value / max_value)
+                if occupancy > occupied_thresh:
+                    cell = 100
+                elif occupancy < free_thresh:
+                    cell = 0
+                else:
+                    cell = 255  # signed OccupancyGrid -1 encoded as one byte
+                grid[out] = cell
+                out += 1
+        signature = (
+            width, height, float(resolution_match.group(1)),
+            float(origin_match.group(1)), float(origin_match.group(2)), float(origin_match.group(3)),
+            hashlib.sha256(grid).hexdigest())
+        # Retain one signature per YAML/image pair and drop stale versions of that path.
+        for key in list(self._map_signature_cache):
+            if key[0] == str(yaml_path) and key != cache_key:
+                self._map_signature_cache.pop(key, None)
+        self._map_signature_cache[cache_key] = signature
+        return signature
+
+    @staticmethod
+    def _grid_signature_from_msg(msg):
+        info = msg.info
+        return (
+            int(info.width), int(info.height), float(info.resolution),
+            float(info.origin.position.x), float(info.origin.position.y),
+            float(yaw_from_quaternion(info.origin.orientation)),
+            hashlib.sha256(bytes(int(value) & 0xff for value in msg.data)).hexdigest())
+
+    @staticmethod
+    def _signature_matches(actual, expected):
+        if actual is None or expected is None:
+            return False
+        return (actual[0] == expected[0] and actual[1] == expected[1] and
+                abs(actual[2] - expected[2]) <= 1e-6 and
+                abs(actual[3] - expected[3]) <= 1e-4 and
+                abs(actual[4] - expected[4]) <= 1e-4 and
+                abs(wrap_angle(actual[5] - expected[5])) <= 1e-6 and
+                actual[6] == expected[6])
+
+    def _match_slot_from_signature(self, signature):
+        with self._lock:
+            preferred = [int(self._requested_slot), int(self._active_slot), int(self._live_map_slot)]
+        seen = set()
+        for slot in preferred + [4, 1, 2, 3, 5]:
+            if slot not in (1, 2, 3, 4, 5) or slot in seen:
+                continue
+            seen.add(slot)
+            try:
+                expected = self._grid_signature_from_yaml(self._slot_yaml(slot))
+            except Exception:
+                continue
+            if self._signature_matches(signature, expected):
+                return slot
+        return 0
 
     def _map_identity_cb(self, msg):
-        info = msg.info
-        live = (int(info.width), int(info.height), float(info.resolution),
-                float(info.origin.position.x), float(info.origin.position.y))
-        matched = 0
-        for slot in (1, 2, 3, 4):
-            sig = self._saved_signature(slot)
-            if not sig:
-                continue
-            if (live[0] == sig[0] and live[1] == sig[1] and
-                    abs(live[2] - sig[2]) <= 1e-6 and
-                    abs(live[3] - sig[3]) <= 1e-4 and
-                    abs(live[4] - sig[4]) <= 1e-4):
-                matched = slot
-                break
-        if matched:
-            with self._lock:
+        try:
+            signature = self._grid_signature_from_msg(msg)
+            matched = self._match_slot_from_signature(signature)
+        except Exception as exc:
+            self.get_logger().warning(f'Gagal menghitung identitas /map: {exc}')
+            return
+        with self._lock:
+            self._raw_grid_signature = signature
+            self._raw_grid_mono = time.monotonic()
+            if matched:
                 self._live_map_slot = matched
-                self._active_slot = matched
-                self._loaded_yaml = str(self._slot_yaml(matched).resolve())
+                if (not self._busy) or matched == int(self._requested_slot):
+                    self._active_slot = matched
+                    self._active_map_name = self._slot_label(matched)
+                    self._loaded_yaml = str(self._slot_yaml(matched).resolve())
+
+    def _nav_map_cb(self, msg):
+        try:
+            signature = self._grid_signature_from_msg(msg)
+        except Exception as exc:
+            self.get_logger().warning(f'Gagal menghitung identitas /nav_map: {exc}')
+            return
+        with self._lock:
+            self._nav_grid_signature = signature
+            self._nav_grid_mono = time.monotonic()
+
+    def _wait_for_loaded_grid(self, yaml_path, kind, newer_than, timeout=12.0):
+        expected = self._grid_signature_from_yaml(yaml_path)
+        deadline = time.monotonic() + float(timeout)
+        while rclpy.ok() and time.monotonic() < deadline:
+            with self._lock:
+                if kind == 'raw':
+                    actual, observed = self._raw_grid_signature, self._raw_grid_mono
+                else:
+                    actual, observed = self._nav_grid_signature, self._nav_grid_mono
+            if observed >= newer_than and self._signature_matches(actual, expected):
+                return True
+            time.sleep(0.05)
+        topic = '/map' if kind == 'raw' else '/nav_map'
+        raise RuntimeError(f'{topic} belum cocok dengan map target {Path(yaml_path).name} setelah LoadMap')
 
     def _slot_yaml(self, slot):
-        if int(slot) == 4:
+        slot = int(slot)
+        if slot == 4:
             return MAP_DIR / 'map_Navigation.yaml'
-        return MAP_DIR / f'map_{int(slot)}.yaml'
+        if slot == 5:
+            return SELECTED_NAV_YAML
+        return MAP_DIR / f'map_{slot}.yaml'
 
     def _validate_slot(self, slot):
-        if slot not in (1, 2, 3, 4):
-            raise RuntimeError('slot Nav2 harus 1..4')
+        if slot not in (1, 2, 3, 4, 5):
+            raise RuntimeError('target Nav2 tidak valid')
         yaml_path = self._slot_yaml(slot)
-        pgm_name = 'map_Navigation.pgm' if int(slot) == 4 else f'map_{int(slot)}.pgm'
-        pgm_path = MAP_DIR / pgm_name
-        label = 'Navigation Map' if int(slot) == 4 else f'Map {slot}'
+        pgm_path = self._slot_pgm(slot)
+        pgm_name = pgm_path.name
+        label = self._slot_label(slot)
         if not yaml_path.is_file() or yaml_path.stat().st_size <= 0:
             raise RuntimeError(f'{label} YAML belum tersedia: {yaml_path}')
         if not pgm_path.is_file() or pgm_path.stat().st_size <= 0:
@@ -334,37 +543,46 @@ class NavMapSwitchController(Node):
                 return True
         return False
 
-    def _node_state(self, node_name, timeout=2.5):
-        # Transition events are the primary source because repeated GetState RPCs
-        # can time out under Jetson load. Graph presence keeps this fail-closed if
-        # a lifecycle process actually disappears.
+    def _node_state(self, node_name, timeout=2.5, force_refresh=False):
+        # Transition events remain the fast path, but lifecycle state is not
+        # allowed to stay cached indefinitely. A respawned Nav2 node can return
+        # to UNCONFIGURED without this controller seeing the earlier event.
         if not self._graph_has_node(node_name):
             self._lifecycle_state_cache.pop(node_name, None)
+            self._lifecycle_state_cache_at.pop(node_name, None)
             return 'missing'
+        now_mono = time.monotonic()
         cached = self._lifecycle_state_cache.get(node_name)
-        if cached:
+        cached_at = float(self._lifecycle_state_cache_at.get(node_name, 0.0))
+        if cached and not force_refresh and (now_mono - cached_at) < 0.75:
             return cached
         client = self._state_clients.get(node_name)
         if client is None:
             client = self.create_client(GetState, f'/{node_name}/get_state')
             self._state_clients[node_name] = client
-        deadline = time.monotonic() + max(0.5, float(timeout))
+        deadline = time.monotonic() + max(0.20, float(timeout))
         saw_service = False
         while rclpy.ok() and time.monotonic() < deadline:
-            remaining = max(0.2, deadline - time.monotonic())
-            if not self._wait_client(client, timeout=min(0.8, remaining)):
+            remaining = max(0.05, deadline - time.monotonic())
+            if not self._wait_client(client, timeout=min(0.25, remaining)):
                 continue
             saw_service = True
             try:
-                response = self._future_result(client.call_async(GetState.Request()), timeout=min(2.0, remaining))
+                response = self._future_result(
+                    client.call_async(GetState.Request()), timeout=min(0.75, remaining))
                 if response:
                     label = str(response.current_state.label).strip().lower()
                     if label:
                         self._lifecycle_state_cache[node_name] = label
+                        self._lifecycle_state_cache_at[node_name] = time.monotonic()
                         return label
             except Exception:
-                time.sleep(0.08)
-        return 'unknown' if saw_service else 'missing'
+                time.sleep(0.03)
+        # Forced health checks are fail-closed: stale ACTIVE must never make the
+        # GUI or mission readiness report READY when the RPC cannot confirm it.
+        if force_refresh:
+            return 'unknown' if saw_service else 'missing'
+        return cached or ('unknown' if saw_service else 'missing')
 
     def _change_state(self, node_name, transition_id, timeout=6.0):
         client = self._transition_clients.get(node_name)
@@ -384,7 +602,7 @@ class NavMapSwitchController(Node):
         deadline = time.monotonic() + float(timeout)
         last_state = 'unknown'
         while rclpy.ok() and time.monotonic() < deadline:
-            last_state = self._node_state(node_name, timeout=2.0)
+            last_state = self._node_state(node_name, timeout=2.0, force_refresh=True)
             if last_state == 'active':
                 return True
             try:
@@ -404,7 +622,7 @@ class NavMapSwitchController(Node):
         deadline = time.monotonic() + float(timeout)
         last_state = 'unknown'
         while rclpy.ok() and time.monotonic() < deadline:
-            last_state = self._node_state(node_name, timeout=1.8)
+            last_state = self._node_state(node_name, timeout=1.8, force_refresh=True)
             if last_state in ('inactive', 'unconfigured', 'finalized', 'missing'):
                 return True
             try:
@@ -420,7 +638,7 @@ class NavMapSwitchController(Node):
         deadline = time.monotonic() + float(timeout)
         last_state = 'unknown'
         while rclpy.ok() and time.monotonic() < deadline:
-            last_state = self._node_state(node_name, timeout=2.0)
+            last_state = self._node_state(node_name, timeout=2.0, force_refresh=True)
             if last_state == 'unconfigured':
                 return True
             try:
@@ -592,6 +810,12 @@ class NavMapSwitchController(Node):
             raise RuntimeError(f'planning map tidak ditemukan: {path}')
         return path
 
+    def _ensure_map_servers_active(self, timeout=30.0):
+        """Recover both map servers before LoadMap or AMCL startup."""
+        for node_name in ('map_server', 'nav_map_server'):
+            self._ensure_node_active(node_name, timeout=timeout)
+        return True
+
     def _load_map(self, client, service_name, yaml_path):
         if not self._wait_client(client, timeout=4.0):
             raise RuntimeError(f'{service_name} tidak tersedia')
@@ -602,6 +826,32 @@ class NavMapSwitchController(Node):
             code = 'NO_RESPONSE' if response is None else int(response.result)
             raise RuntimeError(f'{service_name} gagal load {yaml_path} result={code}')
         return True
+
+    def _clear_costmap(self, client, service_name, timeout=6.0):
+        if not self._wait_client(client, timeout=min(3.0, timeout)):
+            raise RuntimeError(f'{service_name} tidak tersedia')
+        response = self._future_result(
+            client.call_async(ClearEntireCostmap.Request()), timeout=timeout)
+        if response is None:
+            raise RuntimeError(f'{service_name} tidak merespons')
+        return True
+
+    def _refresh_costmaps_after_map_switch(self):
+        # The global static layer is map-dependent and MUST be rebuilt from the
+        # newly selected /nav_map. Local costmap is rolling, but clearing it here
+        # prevents transient obstacle remnants from the previous localization.
+        self._clear_costmap(
+            self._clear_global_costmap,
+            '/global_costmap/clear_entirely_global_costmap', timeout=8.0)
+        warnings = []
+        try:
+            self._clear_costmap(
+                self._clear_local_costmap,
+                '/local_costmap/clear_entirely_local_costmap', timeout=5.0)
+        except Exception as exc:
+            warnings.append(str(exc))
+        time.sleep(0.35)
+        return warnings
 
     def _reset_and_start_amcl(self):
         manager = 'lifecycle_manager_localization'
@@ -642,7 +892,7 @@ class NavMapSwitchController(Node):
         return digest.hexdigest(), image_path
 
     def _map_bound_pose(self, slot, yaml_path):
-        sidecar = MAP_DIR / f'map_{int(slot)}.autopose.json'
+        sidecar = self._sidecar_path(slot)
         if not sidecar.is_file():
             return None, f'no sidecar {sidecar.name}'
         try:
@@ -694,7 +944,7 @@ class NavMapSwitchController(Node):
             'yaw': round(float(sample[2]), 6),
             'source': 'amcl_converged_nav_map_switch',
         }
-        sidecar = MAP_DIR / f'map_{int(slot)}.autopose.json'
+        sidecar = self._sidecar_path(slot)
         tmp = sidecar.with_suffix(sidecar.suffix + '.tmp')
         tmp.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
         os.replace(tmp, sidecar)
@@ -733,7 +983,7 @@ class NavMapSwitchController(Node):
         # Keep AMCL localization warm even while Nav2 is intentionally OFF, as
         # long as a saved map is loaded. This lets a later same-map START resume
         # without resetting AMCL merely because the controller restarted.
-        if mapping_active or busy or (not nav_enabled and active_slot not in (1,2,3)):
+        if mapping_active or busy or (not nav_enabled and active_slot not in (1,2,3,4,5)):
             return
         sensor_ok, _sensor_detail, _scan_age, _odom_age = self._sensor_health()
         if not sensor_ok:
@@ -810,44 +1060,24 @@ class NavMapSwitchController(Node):
                   f'spread={spread_m:.3f}m/{spread_yaw:.3f}rad tf={int(tf_ok)}')
         return bool(cov_ok and stable and tf_ok), detail
 
-    def _current_map_yaml(self):
-        if not self._wait_client(self._map_params, timeout=2.0):
-            return ''
-        request = GetParameters.Request()
-        request.names = ['yaml_filename']
-        try:
-            response = self._future_result(self._map_params.call_async(request), timeout=3.0)
-            if response and response.values:
-                return str(response.values[0].string_value).strip()
-        except Exception:
-            pass
-        return ''
-
-    def _slot_for_path(self, path):
-        if not path:
-            return 0
-        try:
-            resolved = Path(path).expanduser().resolve()
-        except Exception:
-            return 0
-        for slot in (1, 2, 3, 4):
-            try:
-                if resolved == self._slot_yaml(slot).resolve():
-                    return slot
-            except OSError:
-                pass
-        return 0
-
     def _initialize_snapshot(self):
         time.sleep(1.0)
-        with self._lock:
-            live_slot = int(self._live_map_slot)
-        current = str(self._slot_yaml(live_slot).resolve()) if live_slot else self._current_map_yaml()
-        slot = live_slot or self._slot_for_path(current)
+        try:
+            self._ensure_map_servers_active(timeout=25.0)
+        except Exception as exc:
+            self.get_logger().warning(f'Map-server startup recovery pending: {exc}')
+        # Identify the live map from OccupancyGrid content, never from yaml_filename.
+        # LoadMap does not guarantee that parameter changes after a runtime switch.
+        map_deadline = time.monotonic() + 12.0
+        slot = 0
+        while rclpy.ok() and time.monotonic() < map_deadline:
+            with self._lock:
+                slot = int(self._live_map_slot)
+            if slot:
+                break
+            time.sleep(0.20)
+        current = str(self._slot_yaml(slot).resolve()) if slot else ''
         required = ('planner_server', 'controller_server', 'bt_navigator')
-        # Fresh FastDDS participants can need several seconds to discover the
-        # already-running lifecycle nodes on a loaded Jetson. A single miss at
-        # t=1 s used to permanently snapshot NAV2_OFF even though Nav2 was ACTIVE.
         deadline = time.monotonic() + 30.0
         states = {name: 'unknown' for name in required}
         while rclpy.ok() and time.monotonic() < deadline:
@@ -856,8 +1086,7 @@ class NavMapSwitchController(Node):
                 break
             time.sleep(0.5)
         nav_enabled = all(value == 'active' for value in states.values())
-        # /map may arrive while lifecycle discovery is still retrying. Never let
-        # the older startup snapshot overwrite a newer, positively matched map.
+        # /map may arrive while lifecycle discovery is still retrying. Content identity wins.
         with self._lock:
             final_live_slot = int(self._live_map_slot)
         if final_live_slot:
@@ -866,10 +1095,11 @@ class NavMapSwitchController(Node):
         with self._lock:
             self._loaded_yaml = current
             self._active_slot = slot
+            self._active_map_name = self._slot_label(slot) if slot else ''
             self._nav_enabled = nav_enabled
             self._phase = 'NAV2_READY' if nav_enabled else 'NAV2_OFF'
-            self._message = (f'active map={current or "unknown"}; '
-                             + ', '.join(f'{k}={v}' for k, v in states.items()))
+            self._message = (f'active map={current or "unknown"}; identity=occupancy_sha256; ' +
+                             ', '.join(f'{k}={v}' for k, v in states.items()))
         self._publish_status()
 
     def _start_service(self, slot, _request, response):
@@ -888,14 +1118,16 @@ class NavMapSwitchController(Node):
                 response.success = False
                 response.message = f'Nav map switch sedang sibuk: {self._phase}'
                 return response
+            label = self._slot_label(slot)
             self._busy = True
             self._requested_slot = slot
+            self._requested_map_name = label
             self._phase = 'REQUESTED'
             self._error = ''
-            self._message = f'START NAV2 MAP {slot} diterima'
+            self._message = f'USE {label} diterima'
         threading.Thread(target=self._start_worker, args=(slot, yaml_path), daemon=True).start()
         response.success = True
-        response.message = f'START NAV2 MAP {slot} diterima; controller melakukan switch fail-safe'
+        response.message = f'USE {label} diterima; controller melakukan switch fail-safe'
         self._publish_status()
         return response
 
@@ -916,6 +1148,7 @@ class NavMapSwitchController(Node):
         return response
 
     def _start_worker(self, slot, yaml_path):
+        label = self._slot_label(slot)
         try:
             # map_server's yaml_filename parameter reflects its launch-time map
             # and is not guaranteed to change after LoadMap. After startup, use
@@ -925,25 +1158,29 @@ class NavMapSwitchController(Node):
                 live_slot = int(self._live_map_slot)
                 current_slot = int(self._active_slot)
                 current_loaded = str(self._loaded_yaml or '')
+                current_name = str(self._active_map_name or '')
             try:
                 loaded_matches = bool(current_loaded) and Path(current_loaded).resolve() == Path(yaml_path).resolve()
             except Exception:
                 loaded_matches = False
-            same_map = (live_slot == slot) if live_slot else (current_slot == slot and loaded_matches)
+            same_map = ((live_slot == slot) if live_slot else (current_slot == slot and loaded_matches))
+            if int(slot) == 5:
+                same_map = bool(same_map and current_name == label)
             # If STOP was used and localization is still valid on the same map,
             # do not churn map_server/AMCL. Resume Nav2 only.
             localized, detail = self._localized(0.10)
             if same_map and localized:
                 with self._lock:
                     self._phase = 'STARTING_NAV2'
-                    self._message = f'Map {slot} sudah aktif; localization valid ({detail})'
+                    self._message = f'{label} sudah aktif; localization valid ({detail})'
                 self._activate_navigation()
                 with self._lock:
                     self._active_slot = slot
+                    self._active_map_name = label
                     self._loaded_yaml = str(yaml_path)
                     self._nav_enabled = True
                     self._phase = 'NAV2_READY'
-                    self._message = f'NAV2 READY • MAP {slot}'
+                    self._message = f'NAV2 READY • {label}'
                 return
 
             with self._lock:
@@ -959,16 +1196,25 @@ class NavMapSwitchController(Node):
 
             planning_yaml = self._prepare_planning_map(slot, yaml_path)
             with self._lock:
+                self._phase = 'ENSURING_MAP_SERVERS'
+                self._message = 'Memastikan map_server + nav_map_server ACTIVE sebelum reload map'
+            self._ensure_map_servers_active(timeout=30.0)
+            with self._lock:
                 self._phase = 'LOADING_MAP'
-                self._message = f'Load raw Map {slot} ke /map dan planning map ke /nav_map'
+                self._message = f'Load raw {label} ke /map dan planning map ke /nav_map'
+            raw_load_started = time.monotonic()
             self._load_map(self._load_raw, '/map_server/load_map', yaml_path)
+            self._wait_for_loaded_grid(yaml_path, 'raw', raw_load_started, timeout=12.0)
+            nav_load_started = time.monotonic()
             self._load_map(self._load_nav, '/nav_map_server/load_map', planning_yaml)
+            self._wait_for_loaded_grid(planning_yaml, 'nav', nav_load_started, timeout=12.0)
             with self._lock:
                 self._active_slot = slot
+                self._active_map_name = label
                 self._loaded_yaml = str(yaml_path)
                 self._planning_yaml = str(planning_yaml)
                 self._phase = 'RESETTING_LOCALIZATION'
-                self._message = f'Map {slot} loaded; reset AMCL agar pose map lama tidak dipakai'
+                self._message = f'{label} loaded; reset AMCL agar pose map lama tidak dipakai'
 
             self._reset_and_start_amcl()
             known_pose, init_detail = self._map_bound_pose(slot, yaml_path)
@@ -976,7 +1222,7 @@ class NavMapSwitchController(Node):
                 self._localization_epoch = time.monotonic()
                 self._samples.clear()
                 self._phase = 'KNOWN_POSE' if known_pose is not None else 'GLOBAL_LOCALIZATION'
-                self._message = (f'AMCL ACTIVE pada Map {slot}; {init_detail}')
+                self._message = (f'AMCL ACTIVE pada {label}; {init_detail}')
             if known_pose is not None:
                 # Publish more than once to survive DDS discovery races immediately
                 # after the lifecycle reset. AMCL convergence/TF gates remain strict.
@@ -1015,23 +1261,30 @@ class NavMapSwitchController(Node):
                     self._request_nomotion()
                 with self._lock:
                     self._phase = 'WAITING_LOCALIZATION'
-                    self._message = f'Map {slot}: {init_detail}; menunggu AMCL converge • {detail}'
+                    self._message = f'{label}: {init_detail}; menunggu AMCL converge • {detail}'
                 time.sleep(0.35)
             else:
                 raise RuntimeError(
-                    f'AMCL Map {slot} belum converge dalam {timeout:.0f}s ({detail}); Nav2 tetap OFF')
+                    f'AMCL {label} belum converge dalam {timeout:.0f}s ({detail}); Nav2 tetap OFF')
 
             self._persist_converged_pose(slot, yaml_path)
             with self._lock:
                 self._phase = 'STARTING_NAV2'
-                self._message = f'Localization Map {slot} valid ({detail}); pose map-bound diperbarui; activate Nav2'
+                self._message = f'Localization {label} valid ({detail}); pose map-bound diperbarui; activate Nav2'
             self._activate_navigation()
+            with self._lock:
+                self._phase = 'REFRESHING_COSTMAP'
+                self._message = f'Nav2 ACTIVE pada {label}; rebuild global costmap dari /nav_map'
+            costmap_warnings = self._refresh_costmaps_after_map_switch()
+            if costmap_warnings:
+                self.get_logger().warning(
+                    'Costmap refresh warning: ' + ' | '.join(costmap_warnings))
             # Lifecycle nodes are now genuinely ACTIVE. Keep that fact visible while
             # AMCL refreshes map->odom instead of converting a transient TF delay to ERROR.
             with self._lock:
                 self._nav_enabled = True
                 self._phase = 'LOCALIZATION_RECOVERY'
-                self._message = f'Nav2 ACTIVE pada Map {slot}; menunggu map->odom stabil'
+                self._message = f'Nav2 ACTIVE pada {label}; menunggu map->odom stabil'
             post_timeout = max(6.0, float(self.get_parameter('post_activation_tf_timeout_sec').value))
             post_deadline = time.monotonic() + post_timeout
             post_stable = 0
@@ -1053,7 +1306,7 @@ class NavMapSwitchController(Node):
                 self._nav_enabled = True
                 self._phase = 'NAV2_READY'
                 self._error = ''
-                self._message = f'NAV2 READY • MAP {slot}'
+                self._message = f'NAV2 READY • {label}'
             self.get_logger().info(self._message)
         except Exception as exc:
             rollback_note = ''
@@ -1075,6 +1328,7 @@ class NavMapSwitchController(Node):
             with self._lock:
                 self._busy = False
                 self._requested_slot = 0
+                self._requested_map_name = ''
             self._publish_status()
 
     def _stop_worker(self):
@@ -1101,17 +1355,31 @@ class NavMapSwitchController(Node):
             self._publish_status()
 
     def _publish_status(self):
-        # Lifecycle activation can finish after the startup snapshot. Transition
-        # events are already subscribed, so reconcile a late ACTIVE Nav2 set
-        # without issuing lifecycle commands or resetting AMCL/map.
+        # Refresh the three lifecycle states that are mandatory for an actual
+        # navigation goal. This is intentionally rate-limited so the 0.5 s GUI
+        # status timer does not overload lifecycle RPCs on the Jetson.
+        now_core = time.monotonic()
         with self._lock:
-            if not self._busy and not self._nav_enabled and self._phase == 'NAV2_OFF':
-                late_states = {name: self._lifecycle_state_cache.get(name, '')
-                               for name in ('planner_server', 'controller_server', 'bt_navigator')}
-                if all(state == 'active' for state in late_states.values()):
-                    self._nav_enabled = True
-                    self._phase = 'NAV2_READY'
-                    self._message = 'Nav2 lifecycle ACTIVE; late discovery reconciled tanpa reset map/AMCL'
+            refresh_core = (now_core - self._core_nav_state_checked_mono) >= 1.0
+            core_states = dict(self._core_nav_state_snapshot)
+        if refresh_core:
+            core_states = {
+                name: self._node_state(name, timeout=0.20, force_refresh=True)
+                for name in ('planner_server', 'controller_server', 'bt_navigator')
+            }
+            with self._lock:
+                self._core_nav_state_snapshot = dict(core_states)
+                self._core_nav_state_checked_mono = time.monotonic()
+        core_ready = all(state == 'active' for state in core_states.values())
+
+        # Lifecycle activation can finish after the startup snapshot. Reconcile
+        # only from freshly confirmed states, never from an indefinitely stale
+        # transition-event cache.
+        with self._lock:
+            if not self._busy and not self._nav_enabled and self._phase == 'NAV2_OFF' and core_ready:
+                self._nav_enabled = True
+                self._phase = 'NAV2_READY'
+                self._message = 'Nav2 lifecycle ACTIVE; late discovery reconciled tanpa reset map/AMCL'
         self._amcl_tf_keepalive()
         # Never hold the controller lock during a TF lookup.  AMCL/lifecycle
         # callbacks need that lock too and were previously delayed by the
@@ -1172,8 +1440,13 @@ class NavMapSwitchController(Node):
         with self._lock:
             phase = self._phase
             message = self._message
-            nav_enabled = self._nav_enabled
-            if nav_enabled and not self._busy and phase == 'NAV2_READY':
+            nav_enabled_requested = self._nav_enabled
+            nav_enabled = bool(nav_enabled_requested and core_ready)
+            if nav_enabled_requested and not self._busy and not core_ready:
+                phase = 'NAV2_LIFECYCLE_WAIT'
+                detail = ', '.join(f'{name}={state}' for name, state in core_states.items())
+                message = f'Nav2 belum siap untuk goal; menunggu lifecycle ACTIVE ({detail})'
+            elif nav_enabled and not self._busy and phase == 'NAV2_READY':
                 if not sensor_ok:
                     phase = 'SENSOR_WAIT'
                     message = f'Nav2 nodes ACTIVE; menunggu sensor localization ({sensor_detail})'
@@ -1194,8 +1467,12 @@ class NavMapSwitchController(Node):
                 'phase': phase,
                 'nav_enabled': nav_enabled,
                 'nav_ready': bool(nav_enabled and localized),
+                'core_lifecycle_ready': bool(core_ready),
+                'core_lifecycle_states': dict(core_states),
                 'active_slot': self._active_slot,
                 'requested_slot': self._requested_slot,
+                'active_map_name': self._active_map_name or (self._slot_label(self._active_slot) if self._active_slot else ''),
+                'requested_map_name': self._requested_map_name,
                 'loaded_yaml': self._loaded_yaml,
                 'planning_yaml': self._planning_yaml,
                 'mapping_active': self._mapping_active,
@@ -1217,6 +1494,7 @@ class NavMapSwitchController(Node):
         msg = String()
         msg.data = json.dumps(payload, separators=(',', ':'))
         self._status_pub.publish(msg)
+        self._nav2_ready_pub.publish(Bool(data=bool(payload['nav_ready'])))
 
 
 def main(args=None):

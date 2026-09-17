@@ -17,14 +17,14 @@ so it reports `missing=lidar` and fails.
 Run this from the AGV host terminal (needs sudo password):
 
 ```bash
-sudo /home/otomasi2/ros/src/navigation/tools/reset_cp210x.sh both
+sudo /home/otomasi2/forclift/src/navigation/tools/reset_cp210x.sh both
 ```
 
 If that hangs >15s, do a manual hub reset:
 
 ```bash
 # Kill any stuck node
-sudo fuser -k -9 /dev/ttyUSB0 /dev/ttyUSB1
+# Do not kill raw ttyUSB indices; stop the owning ROS mapping/sensor process instead.
 
 # Rebind both CP210x interfaces (IMU=1-2.1.1, LiDAR=1-2.1.4)
 echo '1-2.1.1:1.0' | sudo tee /sys/bus/usb/drivers/cp210x/unbind
@@ -53,10 +53,10 @@ sleep 5
 ## To Make This Automatic (sudoers NOPASSWD)
 As root:
 ```bash
-echo 'otomasi2 ALL=(root) NOPASSWD: /home/otomasi2/ros/src/navigation/tools/cp210x_recover.py' > /etc/sudoers.d/agv-cp210x-recover
+echo 'otomasi2 ALL=(root) NOPASSWD: /home/otomasi2/forclift/src/navigation/tools/cp210x_recover.py' > /etc/sudoers.d/agv-cp210x-recover
 chmod 440 /etc/sudoers.d/agv-cp210x-recover
 ```
-Then launch can auto-recover: `sudo /home/otomasi2/ros/src/navigation/tools/cp210x_recover.py both`
+Then launch can auto-recover: `sudo /home/otomasi2/forclift/src/navigation/tools/cp210x_recover.py both`
 
 ## Prevention (already in code)
 - IMU driver now traps SIGINT/SIGTERM and calls driver_->disconnect() for clean shutdown

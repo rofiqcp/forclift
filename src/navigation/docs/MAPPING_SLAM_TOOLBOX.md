@@ -9,7 +9,7 @@ Runtime chain:
 ## Launch
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch navigation map.launch.py
@@ -36,7 +36,7 @@ enabled with `lidar_strict_checksum:=true`.
 In another terminal:
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 bash src/navigation/tools/check_mapping.sh
@@ -53,8 +53,8 @@ The supplied Ackermann profile intentionally has `steering_calibrated: false` an
 ## Save map
 
 ```bash
-mkdir -p /home/otomasi2/ros/maps
-bash src/navigation/tools/save_map.sh /home/otomasi2/ros/maps/kampus
+mkdir -p /home/otomasi2/forclift/maps
+bash src/navigation/tools/save_map.sh /home/otomasi2/forclift/maps/kampus
 ```
 
 This requests SLAM Toolbox to save the occupancy map using the supplied absolute name.
@@ -65,7 +65,7 @@ This requests SLAM Toolbox to save the occupancy map using the supplied absolute
 The detector defaults to:
 
 ```text
-/home/otomasi2/ros/models/yolov8n_agv_forklift.onnx
+/home/otomasi2/forclift/models/yolov8n_agv_forklift.onnx
 ```
 
 `yolo_model:=...` remains available as an override.

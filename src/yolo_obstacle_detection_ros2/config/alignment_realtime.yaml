@@ -47,7 +47,7 @@ block_detection:
 yaw:
   # Offset for yaw. When fork is truly aligned and error shows e.g. -1.5 deg,
   # set this to -1.5 so output reads ~0 when aligned.
-  setpoint_yaw_offset_deg: 0.0
+  setpoint_yaw_offset_deg: 5.0
   maximum_yaw_jump_deg: 8.0
 
 filter:
@@ -74,5 +74,5 @@ calibration:
   calibration_y_max_px: null
 
 model:
-  weights_path: "/home/otomasi2/ros/models/yolov8n_agv_forklift.pt"
+  weights_path: "/home/otomasi2/forclift/models/yolov8n_agv_forklift.pt"
   device: "cpu"

@@ -13,7 +13,7 @@ Perbaikan ini:
 
 Build:
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 rm -rf build/navigation install/navigation
 colcon build --packages-select yolo_obstacle_detection_ros2 navigation --symlink-install
 source install/setup.bash

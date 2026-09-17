@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "map_yaml": "/home/otomasi2/forclift/src/navigation/maps/map_Navigation.yaml",
+  "map_image": "/home/otomasi2/forclift/src/navigation/maps/map_Navigation.pgm",
+  "map_sha256": "69a00f8f1fefc3d0406d6f4e63227aab565dac95dfbffe00627b61847e4db5cf",
+  "frame_id": "map",
+  "child_frame_id": "base_footprint",
+  "x": 1.482925,
+  "y": -5.369986,
+  "yaw": -1.684252,
+  "source": "amcl_converged_nav_map_switch"
+}

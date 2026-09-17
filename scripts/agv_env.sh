@@ -30,3 +30,9 @@ if [[ -f "$AGV_ROOT/install/setup.bash" ]]; then
   # shellcheck disable=SC1090
   source "$AGV_ROOT/install/setup.bash"
 fi
+
+# Prefer the locally rebuilt navigation package over older overlays.
+if [[ -f "$AGV_ROOT/install/navigation/share/navigation/local_setup.bash" ]]; then
+  # shellcheck disable=SC1090
+  source "$AGV_ROOT/install/navigation/share/navigation/local_setup.bash"
+fi

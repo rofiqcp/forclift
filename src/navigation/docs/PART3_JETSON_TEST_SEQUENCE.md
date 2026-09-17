@@ -5,7 +5,7 @@ Use this order after installing the revised source tree on the AGV.
 ## A. Static gates
 
 ```bash
-cd /home/otomasi2/ros
+cd /home/otomasi2/forclift
 python3 src/navigation/tools/verify_part1_core.py
 python3 src/navigation/tools/verify_part2_gui_config.py
 python3 src/navigation/tools/verify_part3_gpu_reporting.py
